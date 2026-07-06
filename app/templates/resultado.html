@@ -1,0 +1,204 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Resultado da conciliação</title>
+  <link rel="stylesheet" href="{{ url_for('static', path='/style.css') }}">
+</head>
+<body>
+  <main class="container">
+    <nav class="main-nav">
+      <a href="/">Nova conciliação</a>
+      <a href="/historico">Histórico</a>
+      <a href="/unidades">Unidades</a>
+    </nav>
+    <div class="topbar">
+      <div>
+        <span class="eyebrow">Resultado</span>
+        <h1>Conciliação concluída</h1>
+        {% if conciliacao %}
+          <p><strong>{{ conciliacao.unidade_codigo }} — {{ conciliacao.unidade_nome }}</strong> · {{ conciliacao.data_conciliacao }}</p>
+        {% endif %}
+      </div>
+      <a class="secondary" href="/">Nova conciliação</a>
+    </div>
+    {% if resumo.alertas_empresa_shift %}
+      <div class="alert">
+        {% for mensagem in resumo.alertas_empresa_shift %}<p>{{ mensagem }}</p>{% endfor %}
+      </div>
+    {% endif %}
+    <section class="cards">
+      <article><span>Rede</span><strong>{{ resumo.total_linhas_rede }}</strong></article>
+      <article><span>Shift</span><strong>{{ resumo.total_linhas_shift }}</strong></article>
+      <article class="success"><span>Conciliados</span><strong>{{ resumo.total_conciliado }}</strong></article>
+      <article class="warning"><span>Divergências</span><strong>{{ resumo.total_com_divergencia }}</strong></article>
+      <article class="warning"><span>Toleradas até R$ 0,02</span><strong>{{ resumo.total_divergencia_tolerada }}</strong></article>
+      <article class="danger"><span>Só na Rede</span><strong>{{ resumo.total_so_rede }}</strong></article>
+      <article class="danger"><span>Só no Shift</span><strong>{{ resumo.total_so_shift }}</strong></article>
+      <article><span>Erros no Shift</span><strong>{{ resumo.total_erro_cadastral_shift }}</strong></article>
+      <article><span>Duplicidades</span><strong>{{ resumo.total_duplicidade }}</strong></article>
+      <article><span>Shift lidas</span><strong>{{ resumo.shift_total_linhas_lidas }}</strong></article>
+      <article><span>Shift válidas</span><strong>{{ resumo.shift_linhas_validas_para_conciliacao }}</strong></article>
+      <article><span>Linhas agrupadas</span><strong>{{ resumo.shift_linhas_agrupadas }}</strong></article>
+      <article><span>Descartadas</span><strong>{{ resumo.shift_linhas_descartadas }}</strong></article>
+    </section>
+    <section class="panel totals">
+      <div><span>Bruto Rede</span><strong>{{ resumo.valor_bruto_total_rede|money }}</strong></div>
+      <div><span>Bruto Shift</span><strong>{{ resumo.valor_bruto_total_shift|money }}</strong></div>
+      <div><span>Diferença bruta</span><strong>{{ resumo.diferenca_total_valor_bruto|money }}</strong></div>
+      <div><span>Diferença líquida</span><strong>{{ resumo.diferenca_total_valor_liquido|money }}</strong></div>
+    </section>
+    <section class="panel totals">
+      <div><span>Qtd. divergências</span><strong>{{ divergencias|length }}</strong></div>
+      <div class="danger"><span>Impacto financeiro confirmado</span><strong>{{ resumo.impacto_financeiro_confirmado|money }}</strong></div>
+      <div class="warning"><span>Valor total em revisão</span><strong>{{ resumo.valor_total_em_revisao|money }}</strong></div>
+    </section>
+    {% if resumo.totais_por_status_conciliacao %}
+    <section class="cards">
+      {% for status, quantidade in resumo.totais_por_status_conciliacao.items() %}
+        <article><span>{{ status }}</span><strong>{{ quantidade }}</strong></article>
+      {% endfor %}
+    </section>
+    {% endif %}
+    <nav class="downloads">
+      <a href="/download/{{ id }}/detalhado">Baixar detalhado</a>
+      <a href="/download/{{ id }}/resumo">Baixar resumo</a>
+      <a href="/download/{{ id }}/qualidade-shift">Baixar qualidade do Shift</a>
+      {% if conciliacao %}
+        {% for arquivo in conciliacao.arquivos.values() if arquivo.categoria == "REDE" %}
+          <a class="secondary" href="/arquivo/{{ id }}/{{ arquivo.origem }}">{{ arquivo.nome_original }}</a>
+        {% endfor %}
+        {% for arquivo in conciliacao.arquivos.values() if arquivo.categoria == "SHIFT" %}
+          <a class="secondary" href="/arquivo/{{ id }}/{{ arquivo.origem }}">Arquivo Shift original</a>
+        {% endfor %}
+      {% endif %}
+    </nav>
+    <section class="panel">
+      <h2>Autorizações conciliadas ({{ autorizacoes_conciliadas|length }})</h2>
+      <p>Copie os números abaixo (um por linha) e cole no Shift Lis para dar baixa nessas transações.</p>
+      <textarea id="autorizacoes_conciliadas" rows="8" readonly style="width:100%;font-family:monospace;">{{ autorizacoes_conciliadas|join('\n') }}</textarea>
+      <button type="button" class="secondary" onclick="
+        var el = document.getElementById('autorizacoes_conciliadas');
+        el.select(); el.setSelectionRange(0, 999999);
+        navigator.clipboard.writeText(el.value).then(function () {
+          var btn = event.target; var original = btn.textContent;
+          btn.textContent = 'Copiado!';
+          setTimeout(function () { btn.textContent = original; }, 1500);
+        });
+      ">Copiar autorizações</button>
+    </section>
+    <section>
+      <h2>Divergências</h2>
+      {% if arquivos_rede %}
+      <form method="get" class="panel">
+        <label>Filtrar por arquivo da Rede
+          <select name="arquivo_rede">
+            <option value="">Todos</option>
+            {% for arquivo in arquivos_rede %}
+              <option value="{{ arquivo }}" {% if arquivo == arquivo_rede_selecionado %}selected{% endif %}>{{ arquivo }}</option>
+            {% endfor %}
+          </select>
+        </label>
+        <button type="submit">Aplicar filtro</button>
+      </form>
+      {% endif %}
+      <div class="table-wrap">
+        <table>
+          <thead><tr>
+            <th>Status</th><th>Motivo</th>
+            <th>Autorização Shift</th><th>Autorização Rede</th>
+            <th>Valor bruto Shift</th><th>Valor bruto Rede</th><th>Diferença bruta</th>
+            <th>Valor líquido Shift</th><th>Valor líquido Rede</th><th>Diferença líquida</th>
+            <th>Impacto financeiro</th><th>Valor em revisão</th>
+            <th>Data Shift/Rede</th><th>Bandeira</th><th>Modalidade</th>
+            <th>Parcela Shift/Rede</th><th>Agrupamento</th><th>Arquivo Rede</th><th>Campos</th><th>Ação recomendada</th>
+          </tr></thead>
+          <tbody>
+          {% set grupos = namespace(anterior="") %}
+          {% for row in divergencias %}
+            {% if row.grupo_divergencia != grupos.anterior %}
+              <tr class="divergence-group">
+                <td colspan="20">{{ row.grupo_divergencia }}</td>
+              </tr>
+              {% set grupos.anterior = row.grupo_divergencia %}
+            {% endif %}
+            {% set revisao = row.status_comparacao and "REVISAR_AUTORIZACAO_DIVERGENTE" in row.status_comparacao %}
+            {% set ambiguo = row.status_comparacao and "AMBIGUO_SEM_AUTORIZACAO_COMPATIVEL" in row.status_comparacao %}
+            <tr class="{{ 'row-revisao' if revisao or ambiguo else '' }}">
+              <td>
+                <span class="badge {{ 'badge-revisao' if revisao or ambiguo else '' }}">{{ row.status_comparacao }}</span>
+                {% if revisao %}
+                  <div class="alert-inline">⚠ Possível correspondência encontrada, mas o número de autorização é divergente. Revise manualmente antes de confirmar qualquer ajuste.</div>
+                {% elif ambiguo %}
+                  <div class="alert-inline">⚠ Mais de uma transação corresponde por valor/data/modalidade/bandeira/parcela, sem autorização compatível. Revisão manual necessária.</div>
+                {% endif %}
+              </td>
+              <td>
+                {{ row.motivo or "—" }}
+                {% if revisao %}
+                  <details>
+                    <summary>Ver campos comparados</summary>
+                    <div>Valor bruto: Shift {{ row.valor_bruto_shift }} · Rede {{ row.valor_bruto_rede }}</div>
+                    <div>Valor líquido: Shift {{ row.valor_liquido_shift }} · Rede {{ row.valor_liquido_rede }}</div>
+                    <div>Data da venda: Shift {{ row.data_venda_shift }} · Rede {{ row.data_venda_rede }}</div>
+                    <div>Modalidade: Shift {{ row.modalidade_shift }} · Rede {{ row.modalidade_rede }}</div>
+                    <div>Bandeira: Shift {{ row.bandeira_shift }} · Rede {{ row.bandeira_rede }}</div>
+                    <div>Parcela: Shift {{ row.parcela_shift }}/{{ row.qtd_parcelas_shift }} · Rede {{ row.parcela_rede }}/{{ row.qtd_parcelas_rede }}</div>
+                    <div>Parcelas restantes: Shift {{ row.parcelas_restantes_shift }} · Rede {{ row.parcelas_restantes_rede }}</div>
+                    <div>Critério de alerta: {{ row.criterio_alerta }}</div>
+                  </details>
+                {% endif %}
+              </td>
+              <td>{{ row.shift_autorizacao_normalizado or "—" }}</td><td>{{ row.rede_autorizacao_normalizado or "—" }}</td>
+              <td>{{ row.valor_bruto_shift|money if row.valor_bruto_shift not in (none, "") else "—" }}</td>
+              <td>{{ row.valor_bruto_rede|money if row.valor_bruto_rede not in (none, "") else "—" }}</td>
+              <td>{{ row.diferenca_valor_bruto|money if row.diferenca_valor_bruto not in (none, "") else "—" }}</td>
+              <td>{{ row.valor_liquido_shift|money if row.valor_liquido_shift not in (none, "") else "—" }}</td>
+              <td>{{ row.valor_liquido_rede|money if row.valor_liquido_rede not in (none, "") else "—" }}</td>
+              <td>{{ row.diferenca_valor_liquido|money if row.diferenca_valor_liquido not in (none, "") else "—" }}</td>
+              <td><strong>{{ row.impacto_financeiro_confirmado|money if row.impacto_financeiro_confirmado not in (none, "") else "—" }}</strong></td>
+              <td>{{ row.valor_operacao_em_revisao|money if row.valor_operacao_em_revisao not in (none, "") else "—" }}</td>
+              <td>{{ row.data_venda_shift or "—" }} / {{ row.data_venda_rede or "—" }}</td>
+              <td>{{ row.bandeira_shift or row.bandeira_rede or "—" }}</td>
+              <td>{{ row.modalidade_shift or row.modalidade_rede or "—" }}</td>
+              <td>{{ row.parcela_shift or "—" }}/{{ row.qtd_parcelas_shift or "—" }} / {{ row.parcela_rede or "—" }}/{{ row.qtd_parcelas_rede or "—" }}</td>
+              <td>{% if row.houve_agrupamento_shift %}{{ row.linhas_shift_agrupadas }} linhas: {{ row.ids_linhas_shift }}{% else %}Não{% endif %}</td>
+              <td>{{ row.rede_arquivo_origem or "—" }}</td>
+              <td>{{ row.campos_divergentes or "—" }}</td>
+              <td>{{ row.acao_recomendada or row.sugestao_acao or "—" }}</td>
+            </tr>
+          {% else %}<tr><td colspan="20">Nenhuma divergência.</td></tr>{% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </section>
+    <section>
+      <h2>Descartes auditados</h2>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Origem</th><th>Linha</th><th>Empresa</th><th>Autorização</th><th>Valor bruto</th><th>Motivo</th><th>Observação</th></tr></thead>
+          <tbody>
+          {% for row in descartes %}
+            <tr><td>{{ row.origem }}</td><td>{{ row.numero_linha_original }}</td><td>{{ row.empresa }}</td><td>{{ row.autorizacao_original }}</td><td>{{ row.valor_bruto }}</td><td>{{ row.motivo_descarte }}</td><td>{{ row.observacao }}</td></tr>
+          {% else %}<tr><td colspan="7">Nenhuma linha descartada.</td></tr>{% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </section>
+    <section>
+      <h2>Qualidade cadastral do Shift</h2>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Linha</th><th>Autorização original</th><th>Normalizada</th><th>NSU</th><th>Problema</th></tr></thead>
+          <tbody>
+          {% for row in qualidade %}
+            <tr><td>{{ row.linha_shift }}</td><td>{{ row.autorizacao_original }}</td><td>{{ row.autorizacao_normalizada }}</td><td>{{ row.nsu }}</td><td>{{ row.problema }}</td></tr>
+          {% else %}<tr><td colspan="5">Nenhum erro cadastral encontrado.</td></tr>{% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  </main>
+</body>
+</html>

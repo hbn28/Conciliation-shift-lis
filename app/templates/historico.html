@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Histórico de conciliações</title>
+  <link rel="stylesheet" href="{{ url_for('static', path='/style.css') }}">
+</head>
+<body>
+  <main class="container">
+    <nav class="main-nav">
+      <a href="/">Nova conciliação</a>
+      <a class="active" href="/historico">Histórico</a>
+      <a href="/unidades">Unidades</a>
+    </nav>
+    <header>
+      <span class="eyebrow">Consulta</span>
+      <h1>Histórico por unidade e dia</h1>
+      <p>Consulte resultados antigos e recupere os arquivos enviados.</p>
+    </header>
+    <form action="/historico" method="get" class="panel filter-bar">
+      <label>Unidade
+        <select name="unidade_id">
+          <option value="">Todas</option>
+          {% for unidade in unidades %}
+            <option value="{{ unidade.id }}" {% if filtros.unidade_id == unidade.id %}selected{% endif %}>
+              {{ unidade.codigo }} — {{ unidade.nome }}
+            </option>
+          {% endfor %}
+        </select>
+      </label>
+      <label>Data inicial
+        <input type="date" name="data_inicial" value="{{ filtros.data_inicial }}">
+      </label>
+      <label>Data final
+        <input type="date" name="data_final" value="{{ filtros.data_final }}">
+      </label>
+      <button type="submit">Filtrar</button>
+      <a class="cancel-link" href="/historico">Limpar</a>
+    </form>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr><th>Dia</th><th>Unidade</th><th>Rede</th><th>Shift</th><th>Conciliados</th><th>Divergências</th><th>Ações</th></tr>
+        </thead>
+        <tbody>
+        {% for item in conciliacoes %}
+          <tr>
+            <td>{{ item.data_conciliacao }}</td>
+            <td><strong>{{ item.unidade_codigo }}</strong><br>{{ item.unidade_nome }}</td>
+            <td>{{ item.resumo.total_linhas_rede }}</td>
+            <td>{{ item.resumo.total_linhas_shift }}</td>
+            <td>{{ item.resumo.total_conciliado }}</td>
+            <td>{{ item.resumo.total_com_divergencia }}</td>
+            <td class="actions">
+              <a href="/resultado/{{ item.id }}">Ver resultado</a>
+              <a href="/arquivo/{{ item.id }}/rede">Rede</a>
+              <a href="/arquivo/{{ item.id }}/shift">Shift</a>
+              <form action="/historico/{{ item.id }}/excluir" method="post" onsubmit="return confirm('Excluir esta conciliação, seus relatórios e arquivos originais? Esta ação não pode ser desfeita.')">
+                <button class="link-danger" type="submit">Excluir</button>
+              </form>
+            </td>
+          </tr>
+        {% else %}
+          <tr><td colspan="7">Nenhuma conciliação encontrada para os filtros.</td></tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </main>
+</body>
+</html>

@@ -1,0 +1,27 @@
+name: conciliacao
+
+services:
+  conciliacao:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: conciliacao-rede-shift
+    ports:
+      - "8001:8001"
+    volumes:
+      - conciliacao_data:/app/app/storage
+    restart: unless-stopped
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8001/health', timeout=5)"
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+
+volumes:
+  conciliacao_data:
+    name: conciliacao_rede_shift_data

@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Editar unidade</title>
+  <link rel="stylesheet" href="{{ url_for('static', path='/style.css') }}">
+</head>
+<body>
+  <main class="container narrow">
+    <nav class="main-nav">
+      <a href="/">Nova conciliação</a>
+      <a href="/historico">Histórico</a>
+      <a class="active" href="/unidades">Unidades</a>
+    </nav>
+    <header><span class="eyebrow">Administração</span><h1>Editar unidade</h1></header>
+    {% if erro %}<div class="alert">{{ erro }}</div>{% endif %}
+    <form action="/unidades/{{ unidade.id }}/editar" method="post" class="panel">
+      <div class="grid">
+        <label>Código
+          <input name="codigo" value="{{ unidade.codigo }}" required maxlength="50">
+        </label>
+        <label>Nome
+          <input name="nome" value="{{ unidade.nome }}" required maxlength="200">
+        </label>
+        <label>Estabelecimento (Rede)
+          <input name="estabelecimento" value="{{ unidade.estabelecimento or '' }}" maxlength="100">
+        </label>
+        <label>Empresa no relatório do Shift
+          <input name="empresa_shift" value="{{ unidade.empresa_shift or '' }}" maxlength="200">
+          <small>Valor exato da coluna "Empresa" no relatório financeiro do Shift.</small>
+        </label>
+        <label class="checkbox">
+          <input type="checkbox" name="ativa" {% if unidade.ativa %}checked{% endif %}>
+          Unidade ativa e disponível para novos uploads
+        </label>
+      </div>
+      <button type="submit">Salvar alterações</button>
+      <a class="cancel-link" href="/unidades">Cancelar</a>
+    </form>
+  </main>
+</body>
+</html>

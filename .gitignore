@@ -1,0 +1,16 @@
+__pycache__/
+*.py[cod]
+.pytest_cache/
+pytest-cache-files-*/
+.uv-cache/
+.uv-cache-validation/
+.venv/
+.agents/
+.codex/
+app/storage/uploads/*
+app/storage/results/*
+app/storage/*.db
+app/storage/*.db-*
+!app/storage/uploads/.gitkeep
+!app/storage/results/.gitkeep
+outputs/

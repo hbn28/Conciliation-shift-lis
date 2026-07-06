@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Unidades</title>
+  <link rel="stylesheet" href="{{ url_for('static', path='/style.css') }}">
+</head>
+<body>
+  <main class="container">
+    <nav class="main-nav">
+      <a href="/">Nova conciliação</a>
+      <a href="/historico">Histórico</a>
+      <a class="active" href="/unidades">Unidades</a>
+    </nav>
+    <header>
+      <span class="eyebrow">Administração</span>
+      <h1>Unidades</h1>
+      <p>Cadastre as unidades que serão selecionadas em cada conciliação diária.</p>
+    </header>
+    {% if erro %}<div class="alert">{{ erro }}</div>{% endif %}
+    <form action="/unidades" method="post" class="panel">
+      <h2>Adicionar unidade</h2>
+      <div class="grid three">
+        <label>Código
+          <input name="codigo" required maxlength="50" placeholder="Ex.: JZ">
+        </label>
+        <label>Nome
+          <input name="nome" required maxlength="200" placeholder="Ex.: Centrallab JZ">
+        </label>
+        <label>Estabelecimento (Rede) <span>(opcional)</span>
+          <input name="estabelecimento" maxlength="100" placeholder="Ex.: 69269769">
+        </label>
+        <label>Empresa no relatório do Shift <span>(opcional)</span>
+          <input name="empresa_shift" maxlength="200" placeholder="Ex.: CENTRALLAB (Jn)">
+          <small>Valor exato da coluna "Empresa" no relatório financeiro do Shift. Credor/devedor não identifica a unidade.</small>
+        </label>
+      </div>
+      <button type="submit">Adicionar unidade</button>
+    </form>
+    <section>
+      <h2>Unidades cadastradas</h2>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Código</th><th>Nome</th><th>Estabelecimento</th><th>Empresa (Shift)</th><th>Status</th><th>Ações</th></tr></thead>
+          <tbody>
+          {% for unidade in unidades %}
+            <tr>
+              <td><strong>{{ unidade.codigo }}</strong></td>
+              <td>{{ unidade.nome }}</td>
+              <td>{{ unidade.estabelecimento or "—" }}</td>
+              <td>{{ unidade.empresa_shift or "—" }}</td>
+              <td><span class="status {{ 'on' if unidade.ativa else 'off' }}">{{ "Ativa" if unidade.ativa else "Inativa" }}</span></td>
+              <td class="actions">
+                <a href="/unidades/{{ unidade.id }}/editar">Editar</a>
+                <form action="/unidades/{{ unidade.id }}/excluir" method="post" onsubmit="return confirm('Excluir esta unidade?')">
+                  <button class="link-danger" type="submit">Excluir</button>
+                </form>
+              </td>
+            </tr>
+          {% else %}
+            <tr><td colspan="6">Nenhuma unidade cadastrada.</td></tr>
+          {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  </main>
+</body>
+</html>

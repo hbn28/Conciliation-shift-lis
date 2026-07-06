@@ -1,0 +1,132 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Conciliação Rede x Shift</title>
+  <link rel="stylesheet" href="{{ url_for('static', path='/style.css') }}">
+</head>
+<body>
+  <main class="container narrow">
+    <nav class="main-nav">
+      <a class="active" href="/">Nova conciliação</a>
+      <a href="/historico">Histórico</a>
+      <a href="/unidades">Unidades</a>
+    </nav>
+    <header>
+      <span class="eyebrow">Conciliação D-1</span>
+      <h1>Rede Itaú × Shift</h1>
+      <p>Envie os arquivos da Rede e do Shift (pode ser mais de um de cada). Autorizações, NSUs, valores e parcelas serão normalizados antes da comparação.</p>
+    </header>
+    <form action="/processar" method="post" enctype="multipart/form-data" class="panel">
+      <div class="grid">
+        <label>Unidade
+          <select name="unidade_id" required>
+            <option value="">Selecione a unidade</option>
+            {% for unidade in unidades %}
+              <option value="{{ unidade.id }}">{{ unidade.codigo }} — {{ unidade.nome }}</option>
+            {% endfor %}
+          </select>
+          {% if not unidades %}
+            <small class="danger-text">Cadastre uma unidade antes de enviar os arquivos.</small>
+          {% endif %}
+        </label>
+        <label>Data da conciliação
+          <input type="date" name="data_conciliacao" value="{{ default_date }}" required>
+          <small>Dia ao qual as duas planilhas pertencem</small>
+        </label>
+        <label>Arquivo Rede Itaú
+          <input type="file" id="arquivo_rede_input" accept=".csv,.xls,.xlsx" multiple>
+          <small>CSV, XLS ou XLSX. Pode enviar um ou vários arquivos da Rede no mesmo processamento. Selecione novamente para adicionar mais arquivos, sem perder os já escolhidos.</small>
+          <ul id="arquivo_rede_lista" class="file-list"></ul>
+        </label>
+        <label>Arquivo Shift
+          <input type="file" id="arquivo_shift_input" accept=".csv,.xls,.xlsx" multiple>
+          <small>CSV, XLS ou XLSX. Pode enviar um ou vários arquivos do Shift no mesmo processamento. Selecione novamente para adicionar mais arquivos, sem perder os já escolhidos.</small>
+          <ul id="arquivo_shift_lista" class="file-list"></ul>
+        </label>
+        <label>Aba da Rede <span>(opcional)</span>
+          <input type="text" name="aba_rede" placeholder="Detectada automaticamente">
+        </label>
+        <label>Aba do Shift <span>(opcional)</span>
+          <input type="text" name="aba_shift" placeholder="Detectada automaticamente">
+        </label>
+      </div>
+      <button type="submit" {% if not unidades %}disabled{% endif %}>Processar conciliação</button>
+    </form>
+    <section class="note">
+      <strong>Regra crítica:</strong> a autorização é sempre texto de 6 posições. Por exemplo, <code>55040</code> e <code>055040</code> são equivalentes.
+    </section>
+    <section class="note">
+      <strong>Arquivo completo da Rede:</strong> quando o Excel possui várias abas,
+      a aplicação seleciona automaticamente <code>pagamentos</code> e confere se
+      o dia e o estabelecimento correspondem à unidade escolhida.
+    </section>
+  </main>
+  <script>
+    (function () {
+      function setupAcumulador(inputId, listaId, fieldName, mensagemErro) {
+        var visibleInput = document.getElementById(inputId);
+        var lista = document.getElementById(listaId);
+        var form = visibleInput.closest('form');
+        var accumulated = [];
+
+        var hiddenInput = document.createElement('input');
+        hiddenInput.type = 'file';
+        hiddenInput.name = fieldName;
+        hiddenInput.multiple = true;
+        hiddenInput.required = true;
+        hiddenInput.style.display = 'none';
+        form.appendChild(hiddenInput);
+
+        function sync() {
+          var transfer = new DataTransfer();
+          accumulated.forEach(function (file) { transfer.items.add(file); });
+          hiddenInput.files = transfer.files;
+          lista.innerHTML = '';
+          accumulated.forEach(function (file, idx) {
+            var li = document.createElement('li');
+            li.textContent = file.name;
+            var remover = document.createElement('button');
+            remover.type = 'button';
+            remover.className = 'file-remove';
+            remover.textContent = 'remover';
+            remover.addEventListener('click', function () {
+              accumulated.splice(idx, 1);
+              sync();
+            });
+            li.appendChild(remover);
+            lista.appendChild(li);
+          });
+        }
+
+        visibleInput.addEventListener('change', function () {
+          var existentes = {};
+          accumulated.forEach(function (file) {
+            existentes[file.name + '_' + file.size] = true;
+          });
+          Array.from(visibleInput.files).forEach(function (file) {
+            var chave = file.name + '_' + file.size;
+            if (!existentes[chave]) {
+              accumulated.push(file);
+              existentes[chave] = true;
+            }
+          });
+          visibleInput.value = '';
+          sync();
+        });
+
+        form.addEventListener('submit', function (evt) {
+          if (accumulated.length === 0) {
+            evt.preventDefault();
+            alert(mensagemErro);
+          }
+        });
+      }
+
+      setupAcumulador('arquivo_rede_input', 'arquivo_rede_lista', 'arquivo_rede', 'Selecione ao menos um arquivo da Rede Itaú.');
+      setupAcumulador('arquivo_shift_input', 'arquivo_shift_lista', 'arquivo_shift', 'Selecione ao menos um arquivo do Shift.');
+    })();
+  </script>
+</body>
+</html>

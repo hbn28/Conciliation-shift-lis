@@ -1,0 +1,12 @@
+.git
+.gitignore
+.venv
+.pytest_cache
+.uv-cache
+__pycache__
+*.py[cod]
+tests
+app/storage/conciliacao.db
+app/storage/uploads
+app/storage/results
+
