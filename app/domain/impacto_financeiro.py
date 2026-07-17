@@ -47,6 +47,24 @@ def _has_status(status_comparacao: str | None, status: str) -> bool:
     return status in status_comparacao.split(" + ")
 
 
+def _diferenca_assinada(row: pd.Series) -> Decimal | None:
+    """Calcula a diferença com sinal no padrão Rede - Shift.
+
+    Usa valor líquido quando os dois lados existem; caso contrário usa
+    valor bruto. Isso permite somar divergências em saldo líquido, como no
+    exemplo: -0,02 + 0,01 = -0,01.
+    """
+    shift_liquido = _to_decimal(row.get("valor_liquido_shift"))
+    rede_liquido = _to_decimal(row.get("valor_liquido_rede"))
+    if shift_liquido is not None and rede_liquido is not None:
+        return rede_liquido - shift_liquido
+    shift_bruto = _to_decimal(row.get("valor_bruto_shift"))
+    rede_bruto = _to_decimal(row.get("valor_bruto_rede"))
+    if shift_bruto is not None and rede_bruto is not None:
+        return rede_bruto - shift_bruto
+    return None
+
+
 def calcular_impacto_financeiro(row: dict) -> dict:
     """Calcula os campos de impacto financeiro para uma linha de divergência.
 
@@ -181,7 +199,10 @@ def aplicar_impacto_financeiro(detalhado: pd.DataFrame) -> pd.DataFrame:
     if detalhado is None or detalhado.empty:
         return detalhado
     result = detalhado.copy()
-    computed_rows = [calcular_impacto_financeiro(row.to_dict()) for _, row in result.iterrows()]
+    # to_dict("records") é implementado em C e evita reconstruir uma Series
+    # por linha (o que iterrows() faz); ordem das linhas é preservada, então
+    # o índice de computed_df abaixo continua alinhado com result.index.
+    computed_rows = [calcular_impacto_financeiro(row) for row in result.to_dict("records")]
     computed_df = pd.DataFrame(computed_rows, index=result.index)
     for col in computed_df.columns:
         result[col] = computed_df[col]
@@ -196,10 +217,12 @@ def resumo_impacto_financeiro(detalhado: pd.DataFrame) -> dict:
         return {
             "impacto_financeiro_confirmado": ZERO,
             "valor_total_em_revisao": ZERO,
+            "somatorio_divergencias_toleradas_conciliadas": ZERO,
             "totais_por_status_conciliacao": {},
         }
     confirmado = ZERO
     em_revisao = ZERO
+    divergencias_toleradas_conciliadas = ZERO
     for value in detalhado.get("impacto_financeiro_confirmado", []):
         decimal_value = _to_decimal(value)
         if decimal_value is not None:
@@ -212,6 +235,14 @@ def resumo_impacto_financeiro(detalhado: pd.DataFrame) -> dict:
     status_col = detalhado.get("status_conciliacao")
     if status_col is None:
         status_col = detalhado.get("status_comparacao")
+    if status_col is not None:
+        for idx, value in status_col.items():
+            status_text = str(value)
+            if "DIVERGENCIA_TOLERADA_ATE_2_CENTAVOS" not in status_text:
+                continue
+            decimal_value = _diferenca_assinada(detalhado.loc[idx])
+            if decimal_value is not None:
+                divergencias_toleradas_conciliadas += decimal_value
     totais_por_status: dict[str, int] = {}
     if status_col is not None:
         for value in status_col.dropna():
@@ -221,5 +252,6 @@ def resumo_impacto_financeiro(detalhado: pd.DataFrame) -> dict:
     return {
         "impacto_financeiro_confirmado": confirmado,
         "valor_total_em_revisao": em_revisao,
+        "somatorio_divergencias_toleradas_conciliadas": divergencias_toleradas_conciliadas,
         "totais_por_status_conciliacao": totais_por_status,
     }

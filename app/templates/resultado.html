@@ -5,11 +5,13 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Resultado da conciliação</title>
   <link rel="stylesheet" href="{{ url_for('static', path='/style.css') }}">
+  <script src="{{ url_for('static', path='/filtros.js') }}" defer></script>
 </head>
 <body>
   <main class="container">
     <nav class="main-nav">
       <a href="/">Nova conciliação</a>
+      <a href="/verificar-conciliados">Verificar conciliados</a>
       <a href="/historico">Histórico</a>
       <a href="/unidades">Unidades</a>
     </nav>
@@ -31,34 +33,42 @@
     <section class="cards">
       <article><span>Rede</span><strong>{{ resumo.total_linhas_rede }}</strong></article>
       <article><span>Shift</span><strong>{{ resumo.total_linhas_shift }}</strong></article>
-      <article class="success"><span>Conciliados</span><strong>{{ resumo.total_conciliado }}</strong></article>
+      <article class="success"><span>Conciliados no Shift</span><strong>{{ resumo.total_conciliado_shift }}</strong></article>
       <article class="warning"><span>Divergências</span><strong>{{ resumo.total_com_divergencia }}</strong></article>
-      <article class="warning"><span>Toleradas até R$ 0,02</span><strong>{{ resumo.total_divergencia_tolerada }}</strong></article>
-      <article class="danger"><span>Só na Rede</span><strong>{{ resumo.total_so_rede }}</strong></article>
       <article class="danger"><span>Só no Shift</span><strong>{{ resumo.total_so_shift }}</strong></article>
-      <article><span>Erros no Shift</span><strong>{{ resumo.total_erro_cadastral_shift }}</strong></article>
-      <article><span>Duplicidades</span><strong>{{ resumo.total_duplicidade }}</strong></article>
-      <article><span>Shift lidas</span><strong>{{ resumo.shift_total_linhas_lidas }}</strong></article>
-      <article><span>Shift válidas</span><strong>{{ resumo.shift_linhas_validas_para_conciliacao }}</strong></article>
-      <article><span>Linhas agrupadas</span><strong>{{ resumo.shift_linhas_agrupadas }}</strong></article>
-      <article><span>Descartadas</span><strong>{{ resumo.shift_linhas_descartadas }}</strong></article>
     </section>
+    <details class="cards-detalhes">
+      <summary>Ver mais indicadores</summary>
+      <section class="cards">
+        <article class="success"><span>Por agrupamento</span><strong>{{ resumo.total_conciliado_agrupamento_os }}</strong></article>
+        <article class="warning"><span>Toleradas até R$ 0,02</span><strong>{{ resumo.total_divergencia_tolerada }}</strong></article>
+        <article class="danger"><span>Só na Rede</span><strong>{{ resumo.total_so_rede }}</strong></article>
+        <article><span>Erros no Shift</span><strong>{{ resumo.total_erro_cadastral_shift }}</strong></article>
+        <article><span>Duplicidades</span><strong>{{ resumo.total_duplicidade }}</strong></article>
+        <article><span>Shift lidas</span><strong>{{ resumo.shift_total_linhas_lidas }}</strong></article>
+        <article><span>Shift válidas</span><strong>{{ resumo.shift_linhas_validas_para_conciliacao }}</strong></article>
+        <article><span>Linhas agrupadas</span><strong>{{ resumo.shift_linhas_agrupadas }}</strong></article>
+        <article><span>Descartadas</span><strong>{{ resumo.shift_linhas_descartadas }}</strong></article>
+      </section>
+    </details>
     <section class="panel totals">
-      <div><span>Bruto Rede</span><strong>{{ resumo.valor_bruto_total_rede|money }}</strong></div>
-      <div><span>Bruto Shift</span><strong>{{ resumo.valor_bruto_total_shift|money }}</strong></div>
-      <div><span>Diferença bruta</span><strong>{{ resumo.diferenca_total_valor_bruto|money }}</strong></div>
-      <div><span>Diferença líquida</span><strong>{{ resumo.diferenca_total_valor_liquido|money }}</strong></div>
-    </section>
-    <section class="panel totals">
-      <div><span>Qtd. divergências</span><strong>{{ divergencias|length }}</strong></div>
+      <div><span>Qtd. divergências na página</span><strong>{{ divergencias|length }}</strong></div>
+      <div><span>Total de divergências</span><strong>{{ total_divergencias }}</strong></div>
       <div class="danger"><span>Impacto financeiro confirmado</span><strong>{{ resumo.impacto_financeiro_confirmado|money }}</strong></div>
       <div class="warning"><span>Valor total em revisão</span><strong>{{ resumo.valor_total_em_revisao|money }}</strong></div>
+      <div><span>Somatório das divergências conciliadas</span><strong>{{ resumo.somatorio_divergencias_toleradas_conciliadas|money }}</strong></div>
     </section>
-    {% if resumo.totais_por_status_conciliacao %}
-    <section class="cards">
-      {% for status, quantidade in resumo.totais_por_status_conciliacao.items() %}
-        <article><span>{{ status }}</span><strong>{{ quantidade }}</strong></article>
-      {% endfor %}
+    {% if total_paginas > 1 %}
+    <section class="panel">
+      <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;">
+        <span>Página {{ pagina_atual }} de {{ total_paginas }}</span>
+        {% if pagina_atual > 1 %}
+          <a class="secondary" href="?page={{ pagina_atual - 1 }}">Anterior</a>
+        {% endif %}
+        {% if pagina_atual < total_paginas %}
+          <a class="secondary" href="?page={{ pagina_atual + 1 }}">Próxima</a>
+        {% endif %}
+      </div>
     </section>
     {% endif %}
     <nav class="downloads">
@@ -75,19 +85,161 @@
       {% endif %}
     </nav>
     <section class="panel">
-      <h2>Autorizações conciliadas ({{ autorizacoes_conciliadas|length }})</h2>
-      <p>Copie os números abaixo (um por linha) e cole no Shift Lis para dar baixa nessas transações.</p>
-      <textarea id="autorizacoes_conciliadas" rows="8" readonly style="width:100%;font-family:monospace;">{{ autorizacoes_conciliadas|join('\n') }}</textarea>
-      <button type="button" class="secondary" onclick="
-        var el = document.getElementById('autorizacoes_conciliadas');
-        el.select(); el.setSelectionRange(0, 999999);
-        navigator.clipboard.writeText(el.value).then(function () {
-          var btn = event.target; var original = btn.textContent;
-          btn.textContent = 'Copiado!';
-          setTimeout(function () { btn.textContent = original; }, 1500);
+      <h2>Autorizações conciliadas ({{ quantidade_autorizacoes_conciliadas }})</h2>
+      <p>Copie os números abaixo (um por linha) e cole no Shift Lis para dar baixa nessas transações.
+        {% if conciliacao %}Unidade: <strong>{{ conciliacao.unidade_codigo }} — {{ conciliacao.unidade_nome }}</strong>{% endif %}
+      </p>
+      <div class="autorizacao-filtros">
+        <span>Marcadas: <strong id="total-autorizacoes-marcadas">{{ total_autorizacoes_marcadas }}</strong></span>
+        <span>Pendentes: <strong id="total-autorizacoes-pendentes">{{ total_autorizacoes_pendentes }}</strong></span>
+        <button type="button" class="secondary" onclick="filtrarPorMarcacao('.autorizacao-item', 'marcada', 'todas', 'marcadas')">Todas</button>
+        <button type="button" class="secondary" onclick="filtrarPorMarcacao('.autorizacao-item', 'marcada', 'marcadas', 'marcadas')">Marcadas</button>
+        <button type="button" class="secondary" onclick="filtrarPorMarcacao('.autorizacao-item', 'marcada', 'pendentes', 'marcadas')">Pendentes</button>
+        <button type="button" id="btn-salvar-autorizacoes" onclick="salvarAutorizacoesConciliadas()" disabled>Salvar alterações</button>
+        <span id="status-salvar-autorizacoes" aria-live="polite"></span>
+      </div>
+      <div class="autorizacoes-lista">
+        {% for autorizacao, vencimento, valor in autorizacoes_conciliadas %}
+          {% set chave_marca = autorizacao ~ '|' ~ vencimento ~ '|' ~ valor %}
+          {% set dados = row_shift_por_autorizacao[(autorizacao, vencimento, valor)] %}
+          <div class="autorizacao-item {% if autorizacoes_marcadas.get(chave_marca) %}marcada{% endif %}" data-autorizacao="{{ autorizacao }}" data-vencimento="{{ vencimento }}" data-valor="{{ valor }}" data-marcada="{{ '1' if autorizacoes_marcadas.get(chave_marca) else '0' }}">
+            <div class="autorizacao-valor">
+              <div><strong>{{ autorizacao }}</strong>{% if dados.quantidade_linhas > 1 or vencimento %} <span class="autorizacao-vencimento" title="Vencimento desta parcela">venc. {{ vencimento or "—" }}</span>{% endif %} <span class="autorizacao-valor-bruto" title="Valor bruto desta parcela">{{ dados.valor_bruto_total|money }}</span></div>
+              <div class="autorizacao-valor-detalhe" title="Shift emissão {{ dados.janela_emissao_shift }} · Shift vencimento {{ dados.janela_vencimento_shift }} · Rede venda {{ dados.janela_venda_rede }} · Rede vencimento {{ dados.janela_vencimento_rede }} · {{ dados.forma_pagamento }}">
+                Shift {{ dados.janela_emissao_shift }} (venc. {{ dados.janela_vencimento_shift }})
+                · Rede {{ dados.janela_venda_rede }} (venc. {{ dados.janela_vencimento_rede }})
+                · {{ dados.forma_pagamento }}
+                {% if dados.quantidade_linhas > 1 %}· {{ dados.quantidade_linhas }} linhas nesta parcela (valor somado){% endif %}
+              </div>
+            </div>
+            <div class="autorizacao-acoes">
+              <button type="button" class="secondary autorizacao-btn" title="Copiar autorização" aria-label="Copiar autorização" onclick="
+                var valor = this.closest('.autorizacao-item').dataset.autorizacao;
+                var btn = this;
+                navigator.clipboard.writeText(valor).then(function () {
+                  var original = btn.textContent;
+                  btn.textContent = '✓';
+                  setTimeout(function () { btn.textContent = original; }, 1200);
+                });
+              ">⧉</button>
+              <label class="autorizacao-check" title="Marcar esta parcela como conciliada">
+                <input type="checkbox" {% if autorizacoes_marcadas.get(chave_marca) %}checked{% endif %} onchange="
+                  var item = this.closest('.autorizacao-item');
+                  var autorizacao = item.dataset.autorizacao;
+                  var vencimento = item.dataset.vencimento;
+                  var valor = item.dataset.valor;
+                  var marcado = this.checked;
+                  item.classList.toggle('marcada', marcado);
+                  item.dataset.marcada = marcado ? '1' : '0';
+                  item.classList.add('nao-salva');
+                  atualizarTotaisAutorizacoesResultado();
+                  registrarAlteracaoPendente(autorizacao, vencimento, valor, marcado);
+                ">
+                <span>Conciliado</span>
+              </label>
+            </div>
+          </div>
+        {% else %}
+          <p>Nenhuma autorização conciliada encontrada.</p>
+        {% endfor %}
+      </div>
+      <script>
+        function atualizarTotaisAutorizacoesResultado() {
+          var itens = Array.from(document.querySelectorAll('.autorizacao-item'));
+          var marcadas = itens.filter(function (item) { return item.dataset.marcada === '1'; }).length;
+          document.getElementById('total-autorizacoes-marcadas').textContent = marcadas;
+          document.getElementById('total-autorizacoes-pendentes').textContent = itens.length - marcadas;
+        }
+
+        // Alterações de marcação ficam só na tela até o usuário clicar em
+        // "Salvar alterações" — evita disparar um POST a cada clique e deixa
+        // claro quando o estado exibido ainda não foi persistido no banco.
+        // A chave combina autorização + vencimento porque a mesma
+        // autorização se repete em parcelas diferentes; o vencimento é o
+        // que diferencia uma parcela da outra.
+        var alteracoesPendentesAutorizacoes = {};
+
+        function chaveAutorizacaoParcela(autorizacao, vencimento, valor) {
+          return autorizacao + '|' + (vencimento || '') + '|' + (valor || '');
+        }
+
+        function registrarAlteracaoPendente(autorizacao, vencimento, valor, conciliado) {
+          var chave = chaveAutorizacaoParcela(autorizacao, vencimento, valor);
+          alteracoesPendentesAutorizacoes[chave] = {autorizacao: autorizacao, vencimento: vencimento, valor: valor, conciliado: conciliado};
+          var btn = document.getElementById('btn-salvar-autorizacoes');
+          btn.disabled = false;
+          var qtd = Object.keys(alteracoesPendentesAutorizacoes).length;
+          btn.textContent = 'Salvar alterações (' + qtd + ')';
+          document.getElementById('status-salvar-autorizacoes').textContent = '';
+        }
+
+        async function salvarAutorizacoesConciliadas() {
+          var entradas = Object.entries(alteracoesPendentesAutorizacoes);
+          if (entradas.length === 0) {
+            return;
+          }
+          var btn = document.getElementById('btn-salvar-autorizacoes');
+          var status = document.getElementById('status-salvar-autorizacoes');
+          btn.disabled = true;
+          status.textContent = 'Salvando...';
+          var falhas = [];
+          for (var i = 0; i < entradas.length; i++) {
+            var chave = entradas[i][0];
+            var alteracao = entradas[i][1];
+            try {
+              var resposta = await fetch('/resultado/{{ id }}/autorizacoes', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({
+                  autorizacao: alteracao.autorizacao,
+                  data_vencimento: alteracao.vencimento,
+                  valor: alteracao.valor,
+                  conciliado: alteracao.conciliado
+                })
+              });
+              if (!resposta.ok) {
+                falhas.push(alteracao.autorizacao);
+                continue;
+              }
+              var item = document.querySelector(
+                '.autorizacao-item[data-autorizacao="' + alteracao.autorizacao + '"][data-vencimento="' + (alteracao.vencimento || '') + '"][data-valor="' + (alteracao.valor || '') + '"]'
+              );
+              if (item) {
+                item.classList.remove('nao-salva');
+              }
+              delete alteracoesPendentesAutorizacoes[chave];
+            } catch (erro) {
+              falhas.push(alteracao.autorizacao);
+            }
+          }
+          if (falhas.length > 0) {
+            btn.disabled = false;
+            btn.textContent = 'Salvar alterações (' + Object.keys(alteracoesPendentesAutorizacoes).length + ')';
+            status.textContent = 'Falha ao salvar: ' + falhas.join(', ') + '. Tente novamente.';
+          } else {
+            btn.textContent = 'Salvar alterações';
+            status.textContent = 'Alterações salvas.';
+          }
+        }
+
+        window.addEventListener('beforeunload', function (event) {
+          if (Object.keys(alteracoesPendentesAutorizacoes).length > 0) {
+            event.preventDefault();
+            event.returnValue = '';
+          }
         });
-      ">Copiar autorizações</button>
+      </script>
     </section>
+    {% if resumo.totais_por_status_conciliacao %}
+      <details>
+        <summary><h2 style="display:inline;">Totais por status de conciliação</h2></summary>
+        <section class="cards">
+          {% for status, quantidade in resumo.totais_por_status_conciliacao.items() %}
+            <article><span>{{ status }}</span><strong>{{ quantidade }}</strong></article>
+          {% endfor %}
+        </section>
+      </details>
+    {% endif %}
     <section>
       <h2>Divergências</h2>
       {% if arquivos_rede %}
@@ -111,7 +263,7 @@
             <th>Valor bruto Shift</th><th>Valor bruto Rede</th><th>Diferença bruta</th>
             <th>Valor líquido Shift</th><th>Valor líquido Rede</th><th>Diferença líquida</th>
             <th>Impacto financeiro</th><th>Valor em revisão</th>
-            <th>Data Shift/Rede</th><th>Bandeira</th><th>Modalidade</th>
+            <th>Data vencimento Shift/Rede</th><th>Data venda Shift/Rede</th><th>Bandeira</th><th>Modalidade</th>
             <th>Parcela Shift/Rede</th><th>Agrupamento</th><th>Arquivo Rede</th><th>Campos</th><th>Ação recomendada</th>
           </tr></thead>
           <tbody>
@@ -119,7 +271,7 @@
           {% for row in divergencias %}
             {% if row.grupo_divergencia != grupos.anterior %}
               <tr class="divergence-group">
-                <td colspan="20">{{ row.grupo_divergencia }}</td>
+                <td colspan="21">{{ row.grupo_divergencia }}</td>
               </tr>
               {% set grupos.anterior = row.grupo_divergencia %}
             {% endif %}
@@ -159,6 +311,7 @@
               <td>{{ row.diferenca_valor_liquido|money if row.diferenca_valor_liquido not in (none, "") else "—" }}</td>
               <td><strong>{{ row.impacto_financeiro_confirmado|money if row.impacto_financeiro_confirmado not in (none, "") else "—" }}</strong></td>
               <td>{{ row.valor_operacao_em_revisao|money if row.valor_operacao_em_revisao not in (none, "") else "—" }}</td>
+              <td>{{ row.shift_data_vencimento_normalizado or "—" }} / {{ row.rede_data_vencimento_normalizado or "—" }}</td>
               <td>{{ row.data_venda_shift or "—" }} / {{ row.data_venda_rede or "—" }}</td>
               <td>{{ row.bandeira_shift or row.bandeira_rede or "—" }}</td>
               <td>{{ row.modalidade_shift or row.modalidade_rede or "—" }}</td>
@@ -168,36 +321,40 @@
               <td>{{ row.campos_divergentes or "—" }}</td>
               <td>{{ row.acao_recomendada or row.sugestao_acao or "—" }}</td>
             </tr>
-          {% else %}<tr><td colspan="20">Nenhuma divergência.</td></tr>{% endfor %}
+          {% else %}<tr><td colspan="21">Nenhuma divergência.</td></tr>{% endfor %}
           </tbody>
         </table>
       </div>
     </section>
     <section>
-      <h2>Descartes auditados</h2>
-      <div class="table-wrap">
-        <table>
-          <thead><tr><th>Origem</th><th>Linha</th><th>Empresa</th><th>Autorização</th><th>Valor bruto</th><th>Motivo</th><th>Observação</th></tr></thead>
-          <tbody>
-          {% for row in descartes %}
-            <tr><td>{{ row.origem }}</td><td>{{ row.numero_linha_original }}</td><td>{{ row.empresa }}</td><td>{{ row.autorizacao_original }}</td><td>{{ row.valor_bruto }}</td><td>{{ row.motivo_descarte }}</td><td>{{ row.observacao }}</td></tr>
-          {% else %}<tr><td colspan="7">Nenhuma linha descartada.</td></tr>{% endfor %}
-          </tbody>
-        </table>
-      </div>
+      <details>
+        <summary><h2 style="display:inline;">Descartes auditados ({{ descartes|length }})</h2></summary>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Origem</th><th>Linha</th><th>Empresa</th><th>Autorização</th><th>Valor bruto</th><th>Motivo</th><th>Observação</th></tr></thead>
+            <tbody>
+            {% for row in descartes %}
+              <tr><td>{{ row.origem }}</td><td>{{ row.numero_linha_original }}</td><td>{{ row.empresa }}</td><td>{{ row.autorizacao_original }}</td><td>{{ row.valor_bruto }}</td><td>{{ row.motivo_descarte }}</td><td>{{ row.observacao }}</td></tr>
+            {% else %}<tr><td colspan="7">Nenhuma linha descartada.</td></tr>{% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </details>
     </section>
     <section>
-      <h2>Qualidade cadastral do Shift</h2>
-      <div class="table-wrap">
-        <table>
-          <thead><tr><th>Linha</th><th>Autorização original</th><th>Normalizada</th><th>NSU</th><th>Problema</th></tr></thead>
-          <tbody>
-          {% for row in qualidade %}
-            <tr><td>{{ row.linha_shift }}</td><td>{{ row.autorizacao_original }}</td><td>{{ row.autorizacao_normalizada }}</td><td>{{ row.nsu }}</td><td>{{ row.problema }}</td></tr>
-          {% else %}<tr><td colspan="5">Nenhum erro cadastral encontrado.</td></tr>{% endfor %}
-          </tbody>
-        </table>
-      </div>
+      <details>
+        <summary><h2 style="display:inline;">Qualidade cadastral do Shift ({{ qualidade|length }})</h2></summary>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Linha</th><th>Autorização original</th><th>Normalizada</th><th>NSU</th><th>Problema</th></tr></thead>
+            <tbody>
+            {% for row in qualidade %}
+              <tr><td>{{ row.linha_shift }}</td><td>{{ row.autorizacao_original }}</td><td>{{ row.autorizacao_normalizada }}</td><td>{{ row.nsu }}</td><td>{{ row.problema }}</td></tr>
+            {% else %}<tr><td colspan="5">Nenhum erro cadastral encontrado.</td></tr>{% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </details>
     </section>
   </main>
 </body>

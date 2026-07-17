@@ -3,19 +3,20 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Histórico de conciliações</title>
+  <title>Historico de conciliacoes</title>
   <link rel="stylesheet" href="{{ url_for('static', path='/style.css') }}">
 </head>
 <body>
   <main class="container">
     <nav class="main-nav">
-      <a href="/">Nova conciliação</a>
-      <a class="active" href="/historico">Histórico</a>
+      <a href="/">Nova conciliacao</a>
+      <a href="/verificar-conciliados">Verificar conciliados</a>
+      <a class="active" href="/historico">Historico</a>
       <a href="/unidades">Unidades</a>
     </nav>
     <header>
       <span class="eyebrow">Consulta</span>
-      <h1>Histórico por unidade e dia</h1>
+      <h1>Historico por unidade e dia</h1>
       <p>Consulte resultados antigos e recupere os arquivos enviados.</p>
     </header>
     <form action="/historico" method="get" class="panel filter-bar">
@@ -24,7 +25,7 @@
           <option value="">Todas</option>
           {% for unidade in unidades %}
             <option value="{{ unidade.id }}" {% if filtros.unidade_id == unidade.id %}selected{% endif %}>
-              {{ unidade.codigo }} — {{ unidade.nome }}
+              {{ unidade.codigo }} - {{ unidade.nome }}
             </option>
           {% endfor %}
         </select>
@@ -41,7 +42,7 @@
     <div class="table-wrap">
       <table>
         <thead>
-          <tr><th>Dia</th><th>Unidade</th><th>Rede</th><th>Shift</th><th>Conciliados</th><th>Divergências</th><th>Ações</th></tr>
+          <tr><th>Dia</th><th>Unidade</th><th>Rede</th><th>Shift</th><th>Conciliados</th><th>Divergencias</th><th>Acoes</th></tr>
         </thead>
         <tbody>
         {% for item in conciliacoes %}
@@ -56,13 +57,13 @@
               <a href="/resultado/{{ item.id }}">Ver resultado</a>
               <a href="/arquivo/{{ item.id }}/rede">Rede</a>
               <a href="/arquivo/{{ item.id }}/shift">Shift</a>
-              <form action="/historico/{{ item.id }}/excluir" method="post" onsubmit="return confirm('Excluir esta conciliação, seus relatórios e arquivos originais? Esta ação não pode ser desfeita.')">
+              <form action="/historico/{{ item.id }}/excluir" method="post" onsubmit="return confirm('Excluir esta conciliacao, seus relatorios e arquivos originais? Esta acao nao pode ser desfeita.')">
                 <button class="link-danger" type="submit">Excluir</button>
               </form>
             </td>
           </tr>
         {% else %}
-          <tr><td colspan="7">Nenhuma conciliação encontrada para os filtros.</td></tr>
+          <tr><td colspan="7">Nenhuma conciliacao encontrada para os filtros.</td></tr>
         {% endfor %}
         </tbody>
       </table>

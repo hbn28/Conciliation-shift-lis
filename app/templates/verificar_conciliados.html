@@ -1,0 +1,216 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Verificar conciliados</title>
+  <link rel="stylesheet" href="{{ url_for('static', path='/style.css') }}">
+  <script src="{{ url_for('static', path='/filtros.js') }}" defer></script>
+</head>
+<body>
+  <main class="container">
+    <nav class="main-nav">
+      <a href="/">Nova conciliação</a>
+      <a href="/verificar-conciliados" class="active">Verificar conciliados</a>
+      <a href="/historico">Histórico</a>
+      <a href="/unidades">Unidades</a>
+    </nav>
+    <div class="topbar">
+      <div>
+        <span class="eyebrow">Ferramenta manual</span>
+        <h1>Verificar conciliados</h1>
+        <p>Envie um ou mais arquivos da Rede para ver quais autorizações já existem no banco como conciliadas.</p>
+      </div>
+    </div>
+    <section class="panel">
+      <h2 style="margin-top:0;">Busca rápida por autorização</h2>
+      <p>Digite o número da autorização para ver na hora se ela já está marcada como conciliada — não precisa enviar nenhum arquivo.</p>
+      <div class="autorizacao-filtros" style="margin-top:0;">
+        <input type="text" id="busca-autorizacao-numero" placeholder="Número da autorização" style="width:auto;flex:1 1 220px;" onkeydown="if(event.key==='Enter'){event.preventDefault();buscarAutorizacaoRapida();}">
+        <select id="busca-autorizacao-unidade" style="width:auto;">
+          <option value="">Todas as unidades</option>
+          {% for unidade in unidades %}
+            <option value="{{ unidade.id }}">{{ unidade.codigo }} — {{ unidade.nome }}</option>
+          {% endfor %}
+        </select>
+        <button type="button" onclick="buscarAutorizacaoRapida()">Buscar</button>
+      </div>
+      <div id="busca-autorizacao-resultado" style="margin-top:1rem;"></div>
+      <script>
+        async function buscarAutorizacaoRapida() {
+          var numero = document.getElementById('busca-autorizacao-numero').value.trim();
+          var unidadeId = document.getElementById('busca-autorizacao-unidade').value;
+          var destino = document.getElementById('busca-autorizacao-resultado');
+          if (!numero) {
+            destino.innerHTML = '<p class="danger-text">Informe um número de autorização.</p>';
+            return;
+          }
+          destino.innerHTML = '<p>Buscando…</p>';
+          try {
+            var params = new URLSearchParams({autorizacao: numero, unidade_id: unidadeId});
+            var resposta = await fetch('/verificar-conciliados/busca?' + params.toString());
+            if (!resposta.ok) {
+              var erro = await resposta.json().catch(function () { return {}; });
+              destino.innerHTML = '<p class="danger-text">' + (erro.detail || 'Não foi possível buscar.') + '</p>';
+              return;
+            }
+            var dado = await resposta.json();
+            var classe = dado.conciliada ? 'autorizacao-item marcada' : 'autorizacao-item';
+            destino.innerHTML =
+              '<div class="' + classe + '">' +
+                '<div class="autorizacao-valor">' +
+                  '<div><strong>' + dado.autorizacao + '</strong></div>' +
+                  '<div class="autorizacao-valor-detalhe">' + dado.status + '</div>' +
+                '</div>' +
+              '</div>';
+          } catch (erro) {
+            destino.innerHTML = '<p class="danger-text">Erro ao buscar. Tente novamente.</p>';
+          }
+        }
+      </script>
+    </section>
+    <section class="panel">
+      <form method="post" enctype="multipart/form-data" class="grid-form">
+        <div id="arquivos-rede">
+          <label>Arquivos da Rede
+            <input type="file" name="arquivo_rede" required accept=".csv,.xls,.xlsx" multiple>
+          </label>
+        </div>
+        <label>Aba da Rede (opcional)
+          <input type="text" name="aba_rede" placeholder="Deixe vazio para detectar automaticamente">
+        </label>
+        <label>Unidade (opcional)
+          <select name="unidade_id">
+            <option value="">Todas as unidades</option>
+            {% for unidade in unidades %}
+              <option value="{{ unidade.id }}" {% if unidade.id == unidade_id_selecionada %}selected{% endif %}>{{ unidade.codigo }} — {{ unidade.nome }}</option>
+            {% endfor %}
+          </select>
+        </label>
+        <button type="button" class="secondary" onclick="
+          var container = document.getElementById('arquivos-rede');
+          var linha = document.createElement('div');
+          linha.style.display = 'flex';
+          linha.style.alignItems = 'flex-end';
+          linha.style.gap = '8px';
+          var label = document.createElement('label');
+          label.style.flex = '1';
+          label.textContent = 'Outro arquivo da Rede';
+          var input = document.createElement('input');
+          input.type = 'file';
+          input.name = 'arquivo_rede';
+          input.accept = '.csv,.xls,.xlsx';
+          label.appendChild(input);
+          var remover = document.createElement('button');
+          remover.type = 'button';
+          remover.className = 'file-remove';
+          remover.title = 'Remover este arquivo';
+          remover.setAttribute('aria-label', 'Remover este arquivo');
+          remover.textContent = '✕';
+          remover.onclick = function () { linha.remove(); };
+          linha.appendChild(label);
+          linha.appendChild(remover);
+          container.appendChild(linha);
+        ">Adicionar arquivo</button>
+        <button type="submit">Verificar</button>
+      </form>
+    </section>
+
+    {% if resultado %}
+    <section class="cards">
+      <article><span>Linhas lidas</span><strong>{{ resultado.total_linhas }}</strong></article>
+      <article class="success"><span>Autorizações conciliadas</span><strong>{{ resultado.total_conciliadas }}</strong></article>
+      <article class="warning"><span>Não conciliadas</span><strong>{{ resultado.total_nao_conciliadas }}</strong></article>
+      <article><span>Total distinto</span><strong>{{ resultado.total_autorizacoes }}</strong></article>
+    </section>
+    <section class="panel">
+      <h2>Resultado dos arquivos {{ resultado.arquivo }}</h2>
+      <p>Unidade filtrada: <strong>{{ resultado.unidade }}</strong></p>
+      <div class="filtros-inline">
+        <label>Status
+          <select id="filtro-status" onchange="aplicarFiltrosVerificacao()">
+            <option value="todas">Todas</option>
+            <option value="conciliadas">Conciliadas</option>
+            <option value="pendentes">Não conciliadas</option>
+          </select>
+        </label>
+        <label>Forma de pagamento
+          <select id="filtro-modalidade" onchange="aplicarFiltrosVerificacao()">
+            <option value="">Todas</option>
+            {% for modalidade in resultado.modalidades %}
+              <option value="{{ modalidade }}">{{ modalidade }}</option>
+            {% endfor %}
+          </select>
+        </label>
+        <label>Data (venda ou vencimento) contém
+          <input type="text" id="filtro-data" placeholder="ex.: 29/06" oninput="aplicarFiltrosVerificacao()">
+        </label>
+        <label>Buscar autorização
+          <input type="text" id="filtro-autorizacao" placeholder="Digite o número" oninput="aplicarFiltrosVerificacao()">
+        </label>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Status</th>
+              <th>Autorização</th>
+              <th>Arquivo</th>
+              <th>Janela data de venda</th>
+              <th>Janela data de vencimento</th>
+              <th>Parcelas encontradas</th>
+              <th>Valor bruto (soma)</th>
+              <th>Valor líquido (soma)</th>
+              <th>Bandeira</th>
+              <th>Forma de pagamento</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for row in resultado.linhas %}
+            <tr class="{% if row.conciliada %}row-revisao{% endif %}"
+                data-conciliada="{{ '1' if row.conciliada else '0' }}"
+                data-modalidade="{{ row.modalidade or '' }}"
+                data-data-venda="{{ row.janela_data_venda }}"
+                data-data-vencimento="{{ row.janela_data_vencimento }}"
+                data-autorizacao="{{ row.autorizacao }}">
+              <td><span class="badge {% if row.conciliada %}badge-revisao{% endif %}">{{ row.status }}</span></td>
+              <td>{{ row.autorizacao }}</td>
+              <td>{{ row.arquivo or '—' }}</td>
+              <td>{{ row.janela_data_venda }}</td>
+              <td>{{ row.janela_data_vencimento }}</td>
+              <td>{{ row.quantidade_linhas }}</td>
+              <td>{{ row.valor_bruto|money if row.valor_bruto not in (none, '') else '—' }}</td>
+              <td>{{ row.valor_liquido|money if row.valor_liquido not in (none, '') else '—' }}</td>
+              <td>{{ row.bandeira or '—' }}</td>
+              <td>{{ row.modalidade or '—' }}</td>
+            </tr>
+            {% else %}
+            <tr><td colspan="10">Nenhuma autorização identificada.</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      <script>
+        function aplicarFiltrosVerificacao() {
+          var status = document.getElementById('filtro-status').value;
+          var modalidade = document.getElementById('filtro-modalidade').value;
+          var dataTexto = (document.getElementById('filtro-data').value || '').trim().toLowerCase();
+          var autorizacaoTexto = (document.getElementById('filtro-autorizacao').value || '').trim().toLowerCase();
+          document.querySelectorAll('tr[data-conciliada]').forEach(function (row) {
+            var conciliada = row.dataset.conciliada === '1';
+            var statusOk = status === 'todas' || (status === 'conciliadas' && conciliada) || (status === 'pendentes' && !conciliada);
+            var modalidades = (row.dataset.modalidade || '').split(',').map(function (v) { return v.trim(); });
+            var modalidadeOk = !modalidade || modalidades.indexOf(modalidade) !== -1;
+            var dataVenda = (row.dataset.dataVenda || '').toLowerCase();
+            var dataVencimento = (row.dataset.dataVencimento || '').toLowerCase();
+            var dataOk = !dataTexto || dataVenda.indexOf(dataTexto) !== -1 || dataVencimento.indexOf(dataTexto) !== -1;
+            var autorizacaoOk = !autorizacaoTexto || (row.dataset.autorizacao || '').toLowerCase().indexOf(autorizacaoTexto) !== -1;
+            row.style.display = (statusOk && modalidadeOk && dataOk && autorizacaoOk) ? '' : 'none';
+          });
+        }
+      </script>
+    </section>
+    {% endif %}
+  </main>
+</body>
+</html>

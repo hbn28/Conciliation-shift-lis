@@ -24,10 +24,14 @@ COMPARE_FIELDS = [
 # "parcela" e "numero_parcelas" saem da checagem genérica de divergência:
 # elas têm regra própria (parcelas restantes, ver `parcelas_compativeis_por_restantes`)
 # porque a Shift pode registrar +1 parcela em pagamentos mistos (cartão +
-# dinheiro/PIX/outra forma). Continuam em COMPARE_FIELDS só para os campos
-# "_original"/"_normalizado" do relatório (auditoria).
+# dinheiro/PIX/outra forma). "data_venda" também sai: a divergência de data
+# considera só "data_vencimento" (a data de venda/emissão segue exibida no
+# relatório para auditoria, só não gera mais status de divergência sozinha).
+# Continuam em COMPARE_FIELDS só para os campos "_original"/"_normalizado"
+# do relatório (auditoria).
 FIELDS_FOR_GENERIC_DIVERGENCE = [
-    field for field in COMPARE_FIELDS if field not in {"parcela", "numero_parcelas"}
+    field for field in COMPARE_FIELDS
+    if field not in {"parcela", "numero_parcelas", "data_venda"}
 ]
 STATUS_BY_FIELD = {
     "autorizacao": "DIVERGENCIA_AUTORIZACAO",
@@ -179,6 +183,27 @@ def _index(df, fields):
     return index
 
 
+def _unique_conciliation_key(row) -> tuple | None:
+    """Chave estável para não contar a mesma transação conciliada mais de uma vez."""
+    keys = (
+        row.get("shift_autorizacao_normalizado") or row.get("rede_autorizacao_normalizado"),
+        row.get("data_venda_shift") or row.get("data_venda_rede"),
+        row.get("valor_bruto_shift") if row.get("valor_bruto_shift") is not None else row.get("valor_bruto_rede"),
+        row.get("valor_liquido_shift") if row.get("valor_liquido_shift") is not None else row.get("valor_liquido_rede"),
+        row.get("parcela_shift") if row.get("parcela_shift") is not None else row.get("parcela_rede"),
+        row.get("qtd_parcelas_shift") if row.get("qtd_parcelas_shift") is not None else row.get("qtd_parcelas_rede"),
+    )
+    if not any(value is not None and not pd.isna(value) for value in keys):
+        return None
+    normalized = []
+    for value in keys:
+        if value is None or pd.isna(value):
+            normalized.append(None)
+        else:
+            normalized.append(str(value))
+    return tuple(normalized)
+
+
 def _collapse_shift_splits(
     df_rede: pd.DataFrame, df_shift: pd.DataFrame
 ) -> tuple[pd.DataFrame, int, int]:
@@ -305,19 +330,25 @@ def _collapse_shift_splits(
 # =============================================================================
 
 def _autorizacao_index(df: pd.DataFrame) -> dict[str, list[int]]:
+    # Evita iterrows() (reconstrói uma Series com todas as colunas por
+    # linha); usa só a coluna necessária, vetorizada com .map().
     index = defaultdict(list)
-    for idx, row in df.iterrows():
-        auth = normalizar_autorizacao(row.get("autorizacao"))
+    if df.empty or "autorizacao" not in df.columns:
+        return index
+    autorizacoes = df["autorizacao"].map(normalizar_autorizacao)
+    for idx, auth in zip(df.index, autorizacoes):
         if auth:
             index[auth].append(idx)
     return index
 
 
-def _score_candidate(shift, rede) -> tuple[bool, int, bool, bool]:
+def _score_candidate(shift, rede) -> tuple[bool, int, bool, bool, bool]:
     """Ordena candidatos com a mesma autorização (ex.: várias parcelas da
     mesma venda) para escolher a correspondência mais provável: valor
-    dentro da tolerância > melhor critério de parcela > NSU igual > data
-    igual. Usado só para desempate; a autorização já é garantida igual."""
+    dentro da tolerância > melhor critério de parcela > vencimento igual
+    (é o que diferencia uma parcela da outra quando autorização, valor e
+    parcela empatam) > NSU igual > data de venda igual. Usado só para
+    desempate; a autorização já é garantida igual."""
     valor_shift, valor_rede = shift.get("valor_bruto"), rede.get("valor_bruto")
     valor_ok = (
         valor_shift is not None and valor_rede is not None
@@ -329,6 +360,12 @@ def _score_candidate(shift, rede) -> tuple[bool, int, bool, bool]:
         rede.get("parcela"), rede.get("numero_parcelas"),
     )
     parcela_rank = PARCELA_CRITERIO_RANK.get(criterio_parcela, -1)
+    venc_shift, venc_rede = shift.get("data_vencimento"), rede.get("data_vencimento")
+    vencimento_ok = bool(
+        venc_shift is not None and venc_rede is not None
+        and not pd.isna(venc_shift) and not pd.isna(venc_rede)
+        and venc_shift == venc_rede
+    )
     nsu_shift, nsu_rede = shift.get("nsu"), rede.get("nsu")
     nsu_ok = bool(
         nsu_shift and nsu_rede and not pd.isna(nsu_shift) and not pd.isna(nsu_rede)
@@ -340,7 +377,7 @@ def _score_candidate(shift, rede) -> tuple[bool, int, bool, bool]:
         and not pd.isna(data_shift) and not pd.isna(data_rede)
         and data_shift == data_rede
     )
-    return (valor_ok, parcela_rank, nsu_ok, data_ok)
+    return (valor_ok, parcela_rank, vencimento_ok, nsu_ok, data_ok)
 
 
 # =============================================================================
@@ -371,6 +408,24 @@ def _rede_status_normal(rede) -> bool:
     return not any(token in text for token in ("CANCEL", "CONTEST", "DESAGEND", "ESTORN"))
 
 
+def _rede_status_normal_mask(df: pd.DataFrame) -> pd.Series:
+    """Versão vetorizada de `_rede_status_normal`, para filtrar um
+    DataFrame inteiro de uma vez em vez de linha a linha."""
+    if df.empty:
+        return pd.Series([], dtype=bool, index=df.index)
+    valor = df["valor_bruto"] if "valor_bruto" in df.columns else pd.Series(None, index=df.index)
+    valor_ok = valor.map(
+        lambda v: v is not None and not pd.isna(v) and Decimal(v) != 0
+    )
+    status = (df["status"] if "status" in df.columns else pd.Series(None, index=df.index)).fillna("")
+    cancelamento = (
+        df["cancelamento"] if "cancelamento" in df.columns else pd.Series(None, index=df.index)
+    ).fillna("")
+    text = (status.astype(str) + " " + cancelamento.astype(str)).str.upper()
+    proibido = text.str.contains("CANCEL|CONTEST|DESAGEND|ESTORN", regex=True)
+    return valor_ok & ~proibido
+
+
 def gerar_chave_secundaria_sem_autorizacao(row) -> tuple | None:
     """Chave composta exata (valor bruto, data da venda, modalidade,
     bandeira) usada só para localizar candidatos quando a autorização não é
@@ -387,6 +442,17 @@ def gerar_chave_secundaria_sem_autorizacao(row) -> tuple | None:
     return (Decimal(valor_bruto), data_venda, modalidade, bandeira)
 
 
+def _campo_igual_chave(coluna: pd.Series, valor_chave) -> pd.Series:
+    """Compara uma coluna inteira a um valor de chave, com o mesmo critério
+    de "presente" usado por `gerar_chave_secundaria_sem_autorizacao`
+    (None ou float NaN contam como ausente)."""
+    return coluna.map(
+        lambda v: v is not None
+        and not (isinstance(v, float) and pd.isna(v))
+        and v == valor_chave
+    )
+
+
 def buscar_candidatos_secundarios(shift_row, rede_pool: pd.DataFrame) -> list[int]:
     """Candidatos Rede para uma linha do Shift sem autorização compatível.
 
@@ -396,6 +462,15 @@ def buscar_candidatos_secundarios(shift_row, rede_pool: pd.DataFrame) -> list[in
     restantes) e status da Rede de venda normal (não cancelada/contestada/
     desagendada/zerada). Não usa fallback: se qualquer critério não puder
     ser confirmado (ex.: valor líquido ausente), a linha não vira candidata.
+
+    Implementação: os filtros vetorizáveis (status normal, chave composta,
+    tolerância do valor líquido) reduzem `rede_pool` a um subconjunto pequeno
+    antes de qualquer iteração linha a linha — evita repetir esses cálculos
+    para cada uma das potencialmente milhares de linhas da Rede a cada
+    chamada (esta função é chamada uma vez por linha pendente do Shift).
+    Só a checagem de parcela (que já é uma função auxiliar reaproveitada)
+    continua sendo feita candidato a candidato, sobre o subconjunto já
+    filtrado.
     """
     chave_shift = gerar_chave_secundaria_sem_autorizacao(shift_row)
     if chave_shift is None:
@@ -403,25 +478,51 @@ def buscar_candidatos_secundarios(shift_row, rede_pool: pd.DataFrame) -> list[in
     valor_liquido_shift = shift_row.get("valor_liquido")
     if valor_liquido_shift is None or pd.isna(valor_liquido_shift):
         return []
+    if rede_pool.empty:
+        return []
+
+    valor_bruto_chave, data_venda_chave, modalidade_chave, bandeira_chave = chave_shift
+
+    status_ok = _rede_status_normal_mask(rede_pool)
+    if not status_ok.any():
+        return []
+
+    valor_bruto_col = rede_pool.get("valor_bruto", pd.Series(None, index=rede_pool.index))
+    valor_bruto_match = valor_bruto_col.map(
+        lambda v: v is not None and not pd.isna(v) and Decimal(v) == valor_bruto_chave
+    )
+    data_venda_match = _campo_igual_chave(
+        rede_pool.get("data_venda", pd.Series(None, index=rede_pool.index)), data_venda_chave
+    )
+    modalidade_match = _campo_igual_chave(
+        rede_pool.get("modalidade", pd.Series(None, index=rede_pool.index)), modalidade_chave
+    )
+    bandeira_match = _campo_igual_chave(
+        rede_pool.get("bandeira", pd.Series(None, index=rede_pool.index)), bandeira_chave
+    )
+
+    candidato_mask = status_ok & valor_bruto_match & data_venda_match & modalidade_match & bandeira_match
+    if not candidato_mask.any():
+        return []
+
+    candidatos_df = rede_pool.loc[candidato_mask]
+    valor_liquido_col = candidatos_df.get("valor_liquido", pd.Series(None, index=candidatos_df.index))
+    valor_liquido_ok = valor_liquido_col.map(
+        lambda v: v is not None and not pd.isna(v)
+        and abs(Decimal(v) - Decimal(valor_liquido_shift)) <= SECONDARY_VALOR_LIQUIDO_TOLERANCE
+    )
+    candidatos_df = candidatos_df.loc[valor_liquido_ok]
+    if candidatos_df.empty:
+        return []
 
     candidatos = []
-    for rede_idx, rede_row in rede_pool.iterrows():
-        if not _rede_status_normal(rede_row):
-            continue
-        if gerar_chave_secundaria_sem_autorizacao(rede_row) != chave_shift:
-            continue
-        valor_liquido_rede = rede_row.get("valor_liquido")
-        if valor_liquido_rede is None or pd.isna(valor_liquido_rede):
-            continue
-        if abs(Decimal(valor_liquido_rede) - Decimal(valor_liquido_shift)) > SECONDARY_VALOR_LIQUIDO_TOLERANCE:
-            continue
+    for rede_idx, rede_row in candidatos_df.iterrows():
         compativel, _, _, _ = parcelas_compativeis_por_restantes(
             shift_row.get("parcela"), shift_row.get("numero_parcelas"),
             rede_row.get("parcela"), rede_row.get("numero_parcelas"),
         )
-        if not compativel:
-            continue
-        candidatos.append(rede_idx)
+        if compativel:
+            candidatos.append(rede_idx)
     return candidatos
 
 
@@ -945,6 +1046,22 @@ def compare_rede_shift(df_rede: pd.DataFrame, df_shift: pd.DataFrame) -> Compari
         detailed["parcelas_compativeis"] = detailed["parcelas_compativeis"].astype(object)
     detailed = aplicar_impacto_financeiro(detailed)
     status_col = detailed["status_comparacao"]
+    shift_side = detailed["linha_shift"].notna() if "linha_shift" in detailed.columns else pd.Series([False] * len(detailed))
+    status_shift = detailed.loc[shift_side, "status_comparacao"] if len(detailed) else pd.Series(dtype=str)
+    conciliados_shift = detailed.loc[
+        shift_side & status_col.str.startswith("CONCILIADO", na=False)
+    ] if len(detailed) else pd.DataFrame()
+    chaves_conciliadas = {
+        _unique_conciliation_key(row)
+        for _, row in conciliados_shift.iterrows()
+    }
+    chaves_conciliadas.discard(None)
+    autorizacoes_conciliadas = sorted({
+        str(key[0]).strip()
+        for key in chaves_conciliadas
+        if key and key[0]
+    })
+    total_conciliado_unico = len(chaves_conciliadas)
     amount_rede = df_rede["valor_bruto"].dropna().sum()
     amount_shift = df_shift["valor_bruto"].dropna().sum()
     liquid_rede = df_rede["valor_liquido"].dropna().sum()
@@ -957,7 +1074,12 @@ def compare_rede_shift(df_rede: pd.DataFrame, df_shift: pd.DataFrame) -> Compari
         "total_linhas_agrupadas_shift": (
             original_shift_count - len(df_shift) + consolidated_count
         ),
-        "total_conciliado": int(status_col.str.startswith("CONCILIADO").sum()),
+        "total_conciliado": total_conciliado_unico,
+        "total_conciliado_shift": total_conciliado_unico,
+        "total_conciliado_agrupamento_os": int(
+            status_shift.str.contains("CONCILIADO_POR_AGRUPAMENTO_OS_MESMA_AUTORIZACAO").sum()
+        ) if not status_shift.empty else 0,
+        "autorizacoes_conciliadas": autorizacoes_conciliadas,
         "total_divergencia_tolerada": int(
             status_col.str.contains("DIVERGENCIA_TOLERADA").sum()
         ),

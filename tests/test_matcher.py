@@ -127,6 +127,33 @@ def test_sem_autorizacao_compativel_nao_usa_fallback_por_data_e_valor():
     assert "NAO_ENCONTRADO_NO_SHIFT" in statuses
 
 
+def _row_com_datas(auth, nsu, value, data_venda, data_vencimento):
+    row = _row(auth, nsu, value)
+    row["data original da venda"] = data_venda
+    row["data original de vencimento"] = data_vencimento
+    return row
+
+
+def test_data_venda_divergente_sozinha_nao_gera_divergencia_de_data():
+    # Regra atual: divergência de data considera só "data de vencimento";
+    # data de venda/emissão diferente, sozinha, não deve mais gerar
+    # DIVERGENCIA_DATA (só fica registrada no relatório para auditoria).
+    rede_row = _row_com_datas("123456", "123", "10,00", "26/11/2025", "10/12/2025")
+    shift_row = _row_com_datas("123456", "123", "10,00", "27/11/2025", "10/12/2025")
+    result = _compare([rede_row], [shift_row])
+    detail = result.detalhado.loc[0]
+    assert "DIVERGENCIA_DATA" not in detail["status_comparacao"]
+    assert detail["status_comparacao"] == "CONCILIADO"
+
+
+def test_data_vencimento_divergente_gera_divergencia_de_data():
+    rede_row = _row_com_datas("123456", "123", "10,00", "26/11/2025", "10/12/2025")
+    shift_row = _row_com_datas("123456", "123", "10,00", "26/11/2025", "11/12/2025")
+    result = _compare([rede_row], [shift_row])
+    detail = result.detalhado.loc[0]
+    assert "DIVERGENCIA_DATA" in detail["status_comparacao"]
+
+
 def test_diferenca_de_dois_centavos_e_conciliada_mas_permanece_no_painel():
     result = _compare([_row("123456", "123", "10,02")], [_row("123456", "", "10,00")])
     detail = result.detalhado.loc[0]

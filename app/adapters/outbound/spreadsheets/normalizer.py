@@ -398,9 +398,13 @@ def normalize_shift_financial_report(df: pd.DataFrame) -> pd.DataFrame:
     raw_valor_bruto = get_required_column(df, "Valor bruto")
     output["raw_valor_bruto"] = raw_valor_bruto
     output["valor_bruto"] = raw_valor_bruto.map(normalize_money)
-    for idx in output.index:
-        if output.at[idx, "valor_bruto"] is None:
-            alert(idx, "VALOR_VAZIO" if _empty(raw_valor_bruto.at[idx]) else "VALOR_BRUTO_INVALIDO")
+    # Só itera as linhas com valor ausente/inválido (subconjunto pequeno na
+    # prática), em vez de todas as linhas do relatório com .at[] repetido.
+    valor_bruto_ausente = output["valor_bruto"].isna()
+    if valor_bruto_ausente.any():
+        raw_vazio = raw_valor_bruto.map(_empty)
+        for idx in output.index[valor_bruto_ausente]:
+            alert(idx, "VALOR_VAZIO" if raw_vazio.at[idx] else "VALOR_BRUTO_INVALIDO")
 
     raw_valor_liquido = get_optional_column(df, "Valor líquido")
     output["raw_valor_liquido"] = raw_valor_liquido
@@ -436,25 +440,36 @@ def normalize_shift_financial_report(df: pd.DataFrame) -> pd.DataFrame:
     output["parcela"] = raw_parcela.map(lambda v: normalize_int(v, "first"))
     output["numero_parcelas"] = raw_numero_parcelas.map(lambda v: normalize_int(v, "first"))
 
-    for idx in output.index:
-        parcela_val = output.at[idx, "parcela"]
-        numero_val = output.at[idx, "numero_parcelas"]
-        inferida = output.at[idx, "parcelas_inferidas_da_forma"]
-        if parcela_val is None and numero_val is None:
-            if inferida is not None:
-                # Fallback explícito: assume 1ª/única parcela a partir da
-                # forma de pagamento quando não há "Número da parcela" nem
-                # "Quantidade de parcelas" no relatório.
-                output.at[idx, "parcela"] = 1
-                output.at[idx, "numero_parcelas"] = inferida
-            else:
-                alert(idx, "PARCELAMENTO_NAO_IDENTIFICADO")
-        elif (
-            not _empty(numero_val)
-            and not _empty(inferida)
-            and int(numero_val) != int(inferida)
-        ):
-            alert(idx, "DIVERGENCIA_PARCELAMENTO_FORMA_PAGAMENTO")
+    # Vetorizado: calcula as máscaras uma vez (em vez de .at[] por linha) e
+    # só percorre linha a linha o subconjunto que precisa de um alerta —
+    # mesma lógica/branches do loop original, sem os acessos repetidos.
+    parcela_col = output["parcela"]
+    numero_col = output["numero_parcelas"]
+    inferida_col = output["parcelas_inferidas_da_forma"]
+    sem_parcela_e_numero = parcela_col.isna() & numero_col.isna()
+    tem_inferida = inferida_col.notna()
+
+    # Fallback explícito: assume 1ª/única parcela a partir da forma de
+    # pagamento quando não há "Número da parcela" nem "Quantidade de
+    # parcelas" no relatório.
+    fallback_mask = sem_parcela_e_numero & tem_inferida
+    if fallback_mask.any():
+        output.loc[fallback_mask, "parcela"] = 1
+        output.loc[fallback_mask, "numero_parcelas"] = inferida_col[fallback_mask]
+
+    nao_identificado_mask = sem_parcela_e_numero & ~tem_inferida
+    for idx in output.index[nao_identificado_mask]:
+        alert(idx, "PARCELAMENTO_NAO_IDENTIFICADO")
+
+    numero_int = numero_col.map(lambda v: None if _empty(v) else int(v))
+    inferida_int = inferida_col.map(lambda v: None if _empty(v) else int(v))
+    divergente_mask = (
+        ~sem_parcela_e_numero
+        & numero_int.notna() & inferida_int.notna()
+        & (numero_int != inferida_int)
+    )
+    for idx in output.index[divergente_mask]:
+        alert(idx, "DIVERGENCIA_PARCELAMENTO_FORMA_PAGAMENTO")
 
     raw_descricao = get_optional_column(df, "Descrição")
     output["raw_descricao"] = raw_descricao

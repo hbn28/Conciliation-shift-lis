@@ -44,6 +44,7 @@ class Reconciliation:
     unidade_codigo: str = ""
     unidade_nome: str = ""
     arquivos: dict[str, ImportedFile] = field(default_factory=dict)
+    autorizacoes_marcadas: dict[str, bool] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)

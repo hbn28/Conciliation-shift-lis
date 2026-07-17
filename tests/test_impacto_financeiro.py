@@ -1,6 +1,8 @@
 from decimal import Decimal
 
-from app.domain.impacto_financeiro import calcular_impacto_financeiro
+import pandas as pd
+
+from app.domain.impacto_financeiro import calcular_impacto_financeiro, resumo_impacto_financeiro
 
 
 def _row(status, **overrides):
@@ -155,3 +157,25 @@ def test_campos_ausentes_viram_none_sem_quebrar():
     assert result["valor_bruto_shift"] is None
     assert result["diferenca_valor_bruto"] is None
     assert result["impacto_financeiro_confirmado"] == Decimal("0")
+
+
+def test_resumo_soma_divergencias_toleradas_conciliadas():
+    detalhado = pd.DataFrame([
+        calcular_impacto_financeiro(_row(
+            "CONCILIADO_COM_DIVERGENCIA_TOLERADA + DIVERGENCIA_TOLERADA_ATE_2_CENTAVOS",
+            valor_bruto_shift=Decimal("100.00"),
+            valor_bruto_rede=Decimal("99.98"),
+        )),
+        calcular_impacto_financeiro(_row(
+            "CONCILIADO_COM_DIVERGENCIA_TOLERADA + DIVERGENCIA_TOLERADA_ATE_2_CENTAVOS",
+            valor_bruto_shift=Decimal("100.00"),
+            valor_bruto_rede=Decimal("100.01"),
+        )),
+        calcular_impacto_financeiro(_row(
+            "CONCILIADO",
+            valor_bruto_shift=Decimal("50.00"),
+            valor_bruto_rede=Decimal("50.00"),
+        )),
+    ])
+    resumo = resumo_impacto_financeiro(detalhado)
+    assert resumo["somatorio_divergencias_toleradas_conciliadas"] == Decimal("-0.01")
