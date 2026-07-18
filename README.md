@@ -85,6 +85,61 @@ docker compose down -v
 Esse último comando é destrutivo e deve ser usado apenas quando você realmente
 quiser reiniciar a aplicação sem histórico.
 
+## Login por usuário
+
+A aplicação exige login em todas as rotas (exceto `/health`). Não há banco de
+usuários: as credenciais ficam na variável de ambiente `APP_USERS`, no formato:
+
+```text
+APP_USERS=usuario1:pbkdf2$120000$<salt>$<hash>,usuario2:pbkdf2$120000$<salt>$<hash>
+```
+
+Para gerar o valor de cada usuário (a senha nunca é digitada em texto puro no
+`.env`):
+
+```powershell
+python scripts\hash_password.py usuario1
+```
+
+O script pede a senha (sem exibi-la) e imprime a linha pronta para colar em
+`APP_USERS`. Defina também `SECRET_KEY` (qualquer string longa e aleatória) —
+sem ela, a aplicação ainda funciona, mas todos os usuários são deslogados a
+cada reinício/deploy.
+
+```text
+SECRET_KEY=uma-string-longa-e-aleatoria
+APP_USERS=admin:pbkdf2$120000$...
+```
+
+## Deploy no Railway (sem gerenciar servidor)
+
+O projeto já tem `Dockerfile`, então o Railway builda e sobe a aplicação sem
+configuração extra de servidor:
+
+1. Suba o repositório no GitHub (Railway faz deploy a partir de um repositório
+   git).
+2. Em [railway.app](https://railway.app), crie um projeto e escolha **Deploy
+   from GitHub repo**, selecionando este repositório. O Railway detecta o
+   `Dockerfile` automaticamente.
+3. Em **Variables**, defina:
+   - `SECRET_KEY`: string longa e aleatória.
+   - `APP_USERS`: gerado com `scripts/hash_password.py` (veja acima).
+4. Em **Settings → Networking**, gere um domínio público (`*.up.railway.app`)
+   ou aponte um domínio próprio.
+5. Normalmente **não é preciso** definir um Start Command manual — o
+   `Dockerfile` já usa `${PORT:-8001}` e já inclui `--proxy-headers
+   --forwarded-allow-ips='*'`. Essas duas flags são obrigatórias atrás do
+   proxy do Railway: sem elas, os links gerados pela aplicação (como o do
+   CSS) saem como `http://` mesmo com o site em HTTPS, e o navegador bloqueia
+   por "conteúdo misto". Só defina um Start Command manual em **Settings →
+   Deploy** se precisar, e sempre inclua as duas flags:
+   `uvicorn app.main:app --host 0.0.0.0 --port $PORT --proxy-headers --forwarded-allow-ips='*'`.
+
+Por padrão, os arquivos enviados e o banco SQLite ficam no sistema de
+arquivos do contêiner (`app/storage/`), que é apagado a cada novo deploy. Para
+manter o histórico entre deploys, adicione um **Volume** no Railway montado em
+`/app/app/storage`.
+
 ## Exemplo de uso
 
 1. Em **Arquivo Rede Itaú**, selecione o Excel da Rede.
@@ -221,9 +276,12 @@ app/
   bootstrap/
     container.py
   main.py
+  auth.py
   templates/
   static/
   storage/
+scripts/
+  hash_password.py
 tests/
 requirements.txt
 run.py
