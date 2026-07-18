@@ -17,9 +17,13 @@ os.environ.setdefault("DATABASE_PATH", os.path.join(_tmp_db_dir, "test.db"))
 
 from fastapi.testclient import TestClient  # noqa: E402
 
+from app.auth import hash_password  # noqa: E402
 from app.main import app  # noqa: E402
 
+os.environ["APP_USERS"] = f"teste:{hash_password('senha-teste')}"
+
 client = TestClient(app)
+client.post("/login", data={"usuario": "teste", "senha": "senha-teste", "next": "/"})
 
 
 def test_health():

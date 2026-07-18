@@ -16,11 +16,15 @@ os.environ.setdefault("DATABASE_PATH", os.path.join(_tmp_db_dir, "test.db"))
 
 from fastapi.testclient import TestClient  # noqa: E402
 
+from app.auth import hash_password  # noqa: E402
 from app.bootstrap.container import container  # noqa: E402
 from app.domain.entities import ReconciliationSave  # noqa: E402
 from app.main import app  # noqa: E402
 
+os.environ["APP_USERS"] = f"teste:{hash_password('senha-teste')}"
+
 client = TestClient(app)
+client.post("/login", data={"usuario": "teste", "senha": "senha-teste", "next": "/"})
 
 _RESULT_ID = "b" * 32
 
@@ -55,4 +59,9 @@ def test_busca_autorizacao_sem_zero_a_esquerda_encontra_marcacao_canonica():
     # A busca sem vencimento não afirma "JÁ CONCILIADA" de forma binária
     # (a marcação é por parcela) — reporta quantas parcelas distintas dessa
     # autorização já foram marcadas.
-    assert "1 parcela conciliada" 
+    assert "1 parcela conciliada" in body["status"]
+
+
+def test_busca_autorizacao_invalida_retorna_400():
+    response = client.get("/verificar-conciliados/busca", params={"autorizacao": "1234567"})
+    assert response.status_code == 400

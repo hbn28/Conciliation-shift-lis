@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import re
 import shutil
 import uuid
@@ -15,6 +16,7 @@ from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+from starlette.middleware.sessions import SessionMiddleware
 
 from .application.use_cases.process_reconciliation import (
     ProcessReconciliationCommand,
@@ -23,6 +25,7 @@ from .application.divergence_ordering import sort_divergences
 from .application.models import UploadedSpreadsheet
 from .adapters.outbound.spreadsheets.file_reader import read_file_with_metadata
 from .adapters.outbound.spreadsheets.normalizer import normalize_authorization, normalize_dataframe
+from .auth import SESSION_KEY, authenticate, is_public_path
 from .bootstrap.container import container
 from .domain.exceptions import DomainError
 
@@ -39,8 +42,45 @@ for directory in (UPLOAD_DIR, RESULT_DIR):
 logger = logging.getLogger("conciliacao")
 
 app = FastAPI(title="Conciliação Rede Itaú x Shift", version="0.1.0")
+
+SECRET_KEY = os.environ.get("SECRET_KEY")
+if not SECRET_KEY:
+    # Sem SECRET_KEY definida, gera uma por processo: funciona, mas derruba
+    # todas as sessões a cada reinício/deploy. Em produção, defina SECRET_KEY
+    # fixa nas variáveis de ambiente do servidor.
+    SECRET_KEY = uuid.uuid4().hex
+    logging.getLogger("conciliacao").warning(
+        "SECRET_KEY não definida no ambiente; usando uma chave temporária "
+        "(sessões serão perdidas a cada reinício). Defina SECRET_KEY em produção."
+    )
 app.mount("/static", StaticFiles(directory=BASE_DIR / "static"), name="static")
 templates = Jinja2Templates(directory=BASE_DIR / "templates")
+
+
+@app.middleware("http")
+async def exigir_login(request: Request, call_next):
+    if is_public_path(request.url.path) or request.session.get(SESSION_KEY):
+        response = await call_next(request)
+    elif request.method == "GET":
+        destino = quote(request.url.path + (f"?{request.url.query}" if request.url.query else ""))
+        response = RedirectResponse(f"/login?next={destino}", status_code=303)
+    else:
+        response = RedirectResponse("/login", status_code=303)
+    if not request.url.path.startswith("/static"):
+        # Bug real: sem isso, um proxy/CDN no caminho (ou o próprio
+        # navegador) pode guardar em cache a resposta autenticada e servi-la
+        # depois pra outra pessoa sem sessão válida, pulando o login. Só os
+        # arquivos estáticos (CSS etc.) podem ser cacheados com segurança.
+        response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate"
+    return response
+
+
+# Precisa ser registrada DEPOIS do middleware @app.middleware("http") acima:
+# o Starlette monta a pilha em ordem invertida de app.add_middleware, então
+# adicionar o SessionMiddleware por último aqui garante que ele rode por
+# fora (antes) do middleware de login, deixando request.session disponível
+# quando `exigir_login` é chamado.
+app.add_middleware(SessionMiddleware, secret_key=SECRET_KEY, same_site="lax")
 
 
 def _money(value) -> str:
@@ -54,6 +94,36 @@ templates.env.filters["money"] = _money
 @app.get("/health", include_in_schema=False)
 async def health():
     return {"status": "ok"}
+
+
+@app.get("/login", response_class=HTMLResponse, include_in_schema=False)
+async def login_form(request: Request, next: str = "/", erro: str = ""):
+    return templates.TemplateResponse(request, "login.html", {
+        "request": request, "next": next or "/", "erro": erro,
+    })
+
+
+@app.post("/login", include_in_schema=False)
+async def login(
+    request: Request,
+    usuario: str = Form(...),
+    senha: str = Form(...),
+    next: str = Form("/"),
+):
+    if not authenticate(usuario.strip(), senha):
+        erro = quote("Usuário ou senha inválidos.")
+        return RedirectResponse(
+            f"/login?erro={erro}&next={quote(next or '/')}",
+            status_code=303,
+        )
+    request.session[SESSION_KEY] = usuario.strip()
+    return RedirectResponse(next or "/", status_code=303)
+
+
+@app.post("/logout", include_in_schema=False)
+async def logout(request: Request):
+    request.session.clear()
+    return RedirectResponse("/login", status_code=303)
 
 
 def _result_path(result_id: str) -> Path:

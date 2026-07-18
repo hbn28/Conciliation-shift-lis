@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Entrar — Conciliação Rede x Shift</title>
+  <link rel="stylesheet" href="{{ url_for('static', path='/style.css') }}">
+</head>
+<body>
+  <main class="container narrow">
+    <header>
+      <span class="eyebrow">Conciliação D-1</span>
+      <h1>Entrar</h1>
+    </header>
+    {% if erro %}<div class="alert">{{ erro }}</div>{% endif %}
+    <form action="/login" method="post" class="panel">
+      <input type="hidden" name="next" value="{{ next }}">
+      <div class="grid">
+        <label>Usuário
+          <input type="text" name="usuario" autocomplete="username" required autofocus>
+        </label>
+        <label>Senha
+          <input type="password" name="senha" autocomplete="current-password" required>
+        </label>
+      </div>
+      <button type="submit">Entrar</button>
+    </form>
+  </main>
+</body>
+</html>

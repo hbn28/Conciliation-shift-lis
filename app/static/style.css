@@ -17,6 +17,9 @@ button:disabled { opacity:.5; cursor:not-allowed; }
 .main-nav { display:flex; gap:8px; margin-bottom:34px; border-bottom:1px solid var(--line); }
 .main-nav a { padding:10px 14px; color:#486581; text-decoration:none; font-weight:700; border-bottom:3px solid transparent; }
 .main-nav a.active { color:var(--blue); border-bottom-color:var(--blue); }
+.main-nav .logout-form { margin-left:auto; }
+.link-button { width:auto; margin:0; padding:10px 14px; background:none; border:none; color:#486581; font-weight:700; font-size:.95rem; cursor:pointer; }
+.link-button:hover { color:var(--red); }
 .three { grid-template-columns:repeat(3,1fr); }
 .alert { background:#fff0ee; color:var(--red); border:1px solid #ffc9c2; padding:13px 16px; border-radius:9px; margin:18px 0; }
 .danger-text { color:var(--red); }
