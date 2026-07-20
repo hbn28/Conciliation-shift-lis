@@ -213,11 +213,90 @@ def test_agrupamento_mesma_autorizacao_soma_diverge_da_rede():
     assert detail["diferenca_valor_liquido"] == Decimal("1.00")
 
 
-def test_agrupamento_mesma_autorizacao_com_parcelas_incompativeis_fica_ambiguo():
-    rede = [_row_secundaria("0195933", "100,00", "100,00", parcela="1", total="2")]
+def test_parcelas_diferentes_mesma_autorizacao_nao_ficam_ambiguas():
+    # Bug real: uma venda parcelada normal repete a mesma autorização em
+    # cada parcela (vencimentos ~30 dias entre si). Isso não é ambiguidade
+    # de agrupamento de O.S. — são transações distintas, cada uma deve
+    # conciliar com sua parcela correspondente na Rede. Antes da correção,
+    # a checagem de ambiguidade agrupava só por autorização (sem separar por
+    # parcela), então parcelas diferentes já bastavam para marcar TODAS as
+    # linhas como AGRUPAMENTO_OS_AMBIGUO, jogando parcelas legítimas pra
+    # revisão manual.
+    rede = [
+        _row_secundaria("0195933", "50,00", "50,00", parcela="1", total="2"),
+        _row_secundaria("0195933", "50,00", "50,00", parcela="2", total="2"),
+    ]
     shift = [
         _row_secundaria("195933", "50,00", "50,00", parcela="1", total="2", __os_shift="OS1"),
         _row_secundaria("195933", "50,00", "50,00", parcela="2", total="2", __os_shift="OS2"),
+    ]
+    result = _compare(rede, shift)
+    shift_rows = result.detalhado[result.detalhado["linha_shift"].notna()]
+    assert not shift_rows["status_comparacao"].str.contains("AGRUPAMENTO_OS_AMBIGUO").any()
+    assert not shift_rows["status_comparacao"].str.contains("NAO_ENCONTRADO_NA_REDE").any()
+    # Cada parcela deve casar com sua própria parcela correspondente na
+    # Rede (não com nenhuma outra), sem diferença de valor.
+    assert shift_rows["linha_rede"].notna().all()
+    assert (shift_rows["diferenca_valor_bruto"] == 0).all()
+    assert set(shift_rows["parcela_shift"]) == {1, 2}
+
+
+def test_parcelas_diferentes_mesmo_vencimento_vai_para_revisao_manual():
+    # Caso real observado: no relatório financeiro do Shift, duas linhas com
+    # a mesma autorização e números de parcela diferentes (1 e 2) às vezes
+    # caem exatamente no mesmo vencimento — padrão suspeito de erro de
+    # cadastro (a mesma cobrança lançada duas vezes com parcelas diferentes
+    # por engano). Por decisão explícita: isso não é somado automaticamente
+    # (regra de soma continua exigindo mesma parcela) e também NÃO concilia
+    # automático contra a Rede — vai direto para revisão manual, como o
+    # agrupamento ambíguo de O.S.
+    rede = [
+        _row_secundaria(
+            "0195933", "40,67", "40,67", parcela="1", total="6",
+            **{"data original de vencimento": "17/07/2026"},
+        ),
+        _row_secundaria(
+            "0195933", "52,67", "52,67", parcela="2", total="6",
+            **{"data original de vencimento": "17/07/2026"},
+        ),
+    ]
+    shift = [
+        _row_secundaria(
+            "195933", "40,67", "40,67", parcela="1", total="6", __os_shift="OS1",
+            **{"data original de vencimento": "17/07/2026"},
+        ),
+        _row_secundaria(
+            "195933", "52,67", "52,67", parcela="2", total="6", __os_shift="OS2",
+            **{"data original de vencimento": "17/07/2026"},
+        ),
+    ]
+    result = _compare(rede, shift)
+    shift_rows = result.detalhado[result.detalhado["linha_shift"].notna()]
+    assert shift_rows["status_comparacao"].eq(
+        "AUTORIZACAO_REPETIDA_MESMO_VENCIMENTO_PARCELA_DIFERENTE"
+    ).all()
+    # Não concilia automático: nenhuma linha do Shift casa com a Rede.
+    assert shift_rows["linha_rede"].isna().all()
+    # As linhas da Rede correspondentes também ficam sem par, visíveis para
+    # revisão manual dos dois lados.
+    rede_rows = result.detalhado[result.detalhado["linha_shift"].isna()]
+    assert (rede_rows["status_comparacao"] == "NAO_ENCONTRADO_NO_SHIFT").all()
+    assert result.resumo["total_autorizacao_repetida_mesmo_vencimento"] == 2
+    assert result.resumo["total_com_divergencia"] >= 2
+
+
+def test_mesma_parcela_e_mesma_autorizacao_com_campos_conflitantes_continua_ambigua():
+    # Já dentro da MESMA parcela (candidata a soma/consolidação), campos
+    # críticos conflitantes (aqui, bandeira) continuam corretamente ambíguos
+    # — não dá pra saber se são O.S. da mesma parcela ou dados inconsistentes.
+    rede = [_row_secundaria("0195933", "30,00", "29,00", parcela="1", total="1")]
+    shift = [
+        _row_secundaria(
+            "195933", "10,00", "9,50", bandeira="Visa", parcela="1", total="1", __os_shift="OS1",
+        ),
+        _row_secundaria(
+            "195933", "20,00", "19,50", bandeira="Mastercard", parcela="1", total="1", __os_shift="OS2",
+        ),
     ]
     result = _compare(rede, shift)
     shift_rows = result.detalhado[result.detalhado["linha_shift"].notna()]

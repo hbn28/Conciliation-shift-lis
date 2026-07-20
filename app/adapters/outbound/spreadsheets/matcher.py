@@ -207,12 +207,27 @@ def _unique_conciliation_key(row) -> tuple | None:
 def _collapse_shift_splits(
     df_rede: pd.DataFrame, df_shift: pd.DataFrame
 ) -> tuple[pd.DataFrame, int, int]:
-    """Consolida múltiplas O.S. do Shift com a mesma autorização.
+    """Consolida múltiplas O.S. do Shift com a mesma autorização E a mesma
+    parcela (mesmo `parcela`/`numero_parcelas`) — ou seja, o mesmo pagamento
+    fisicamente dividido em mais de um registro (ex.: pagamento fracionado).
 
     O agrupamento acontece antes da classificação como duplicidade/faltante,
     preservando rastreabilidade das linhas originais. Se campos críticos do
-    grupo divergirem, o grupo fica marcado como ambíguo e segue para revisão
-    manual em vez de ser conciliado automaticamente.
+    grupo (empresa, data usada no match, modalidade, bandeira) divergirem
+    dentro da MESMA parcela, o grupo fica marcado como ambíguo e segue para
+    revisão manual em vez de ser conciliado automaticamente.
+
+    Importante: a checagem de ambiguidade é por (autorização + parcela), não
+    pela autorização inteira. Uma venda parcelada normal repete a mesma
+    autorização em cada parcela (parcela 1, 2, 3...), cada uma com seu
+    próprio vencimento (tipicamente ~30 dias de diferença uma da outra) —
+    isso não é ambíguo, são transações distintas que devem ser conciliadas
+    cada uma com sua parcela correspondente na Rede. Bug real corrigido
+    aqui: antes, a checagem agrupava só por autorização e incluía "parcela"
+    na assinatura comparada, então parcelas diferentes (normais) já bastavam
+    para marcar TODAS as linhas daquela autorização como
+    AGRUPAMENTO_OS_AMBIGUO, jogando parcelas legítimas para revisão manual
+    em vez de conciliá-las normalmente.
     """
     original_count = len(df_shift)
     if "autorizacao" not in df_shift.columns:
@@ -224,12 +239,15 @@ def _collapse_shift_splits(
     df_shift["_multiplas_os_mesma_autorizacao"] = False
     df_shift["_criterio_agrupamento"] = None
     df_shift["_motivo_agrupamento"] = None
-    critical_fields = [
-        field for field in
-        [
-            "empresa", "data_shift_usada_para_match", "modalidade", "bandeira",
-            "parcela", "numero_parcelas",
-        ]
+    df_shift["_autorizacao_repetida_mesmo_vencimento"] = False
+    installment_fields = [
+        field for field in ("parcela", "numero_parcelas") if field in df_shift.columns
+    ]
+    # Assinatura comparada dentro de cada (autorização, parcela): parcela e
+    # numero_parcelas NÃO entram aqui porque já são o critério que define o
+    # subgrupo — divergência entre parcelas diferentes não é ambiguidade.
+    signature_fields = [
+        field for field in ("empresa", "data_shift_usada_para_match", "modalidade", "bandeira")
         if field in df_shift.columns
     ]
     duplicate_signature_fields = [
@@ -240,20 +258,41 @@ def _collapse_shift_splits(
         ]
         if field in df_shift.columns
     ]
-    for _, auth_group in df_shift.groupby("autorizacao", dropna=False, sort=False):
-        if len(auth_group) < 2:
+    installment_group_fields = ["autorizacao", *installment_fields]
+    for _, installment_group in df_shift.groupby(installment_group_fields, dropna=False, sort=False):
+        if len(installment_group) < 2:
             continue
-        if critical_fields:
-            signatures = auth_group[critical_fields].astype(str).drop_duplicates()
+        if signature_fields:
+            signatures = installment_group[signature_fields].astype(str).drop_duplicates()
         else:
             signatures = pd.DataFrame([["__SEM_CRITICOS__"]])
         if len(signatures) > 1:
-            df_shift.loc[auth_group.index, "_agrupamento_shift_ambiguo"] = True
+            df_shift.loc[installment_group.index, "_agrupamento_shift_ambiguo"] = True
             continue
         if duplicate_signature_fields:
-            duplicates = auth_group[duplicate_signature_fields].astype(str).duplicated(keep=False)
+            duplicates = installment_group[duplicate_signature_fields].astype(str).duplicated(keep=False)
             if duplicates.any():
-                df_shift.loc[auth_group.index[duplicates], "_duplicidade_exata_suspeita"] = True
+                df_shift.loc[installment_group.index[duplicates], "_duplicidade_exata_suspeita"] = True
+
+    # Alerta (não bloqueia, não soma automaticamente): mesma autorização e
+    # mesmo vencimento no Shift, mas com números de parcela diferentes. Não
+    # tratamos como a mesma parcela dividida (regra acima já cobre isso) nem
+    # como parcelas normais e distintas sem mais análise — vencimentos
+    # coincidirem exatamente quando a parcela é diferente é um padrão
+    # suspeito de erro de cadastro (ex.: a mesma cobrança lançada duas vezes
+    # com números de parcela diferentes por engano). Cada linha ainda segue
+    # o fluxo normal de conciliação contra a Rede; isso só marca a linha
+    # para revisão visível no relatório.
+    if "data_vencimento" in df_shift.columns and "parcela" in df_shift.columns:
+        dados_validos = df_shift["autorizacao"].notna() & df_shift["data_vencimento"].notna()
+        for _, vencimento_group in df_shift.loc[dados_validos].groupby(
+            ["autorizacao", "data_vencimento"], sort=False
+        ):
+            if len(vencimento_group) < 2:
+                continue
+            if vencimento_group["parcela"].dropna().nunique() > 1:
+                df_shift.loc[vencimento_group.index, "_autorizacao_repetida_mesmo_vencimento"] = True
+
     drop_indexes: set[int] = set()
     replacements: list[pd.Series] = []
     group_fields = [
@@ -585,6 +624,11 @@ def _action(statuses):
         ("AGRUPAMENTO_OS_VALOR_DIVERGENTE", "Conferir soma das O.S. agrupadas"),
         ("AGRUPAMENTO_SHIFT_AMBIGUO", "Revisão manual obrigatória"),
         ("DUPLICIDADE_EXATA_SUSPEITA", "Revisar possível linha duplicada no Shift"),
+        (
+            "AUTORIZACAO_REPETIDA_MESMO_VENCIMENTO_PARCELA_DIFERENTE",
+            "Confirmar no Shift: mesma autorização e mesmo vencimento com números de "
+            "parcela diferentes — verificar se não é a mesma cobrança lançada duas vezes.",
+        ),
         ("REVISAR_AUTORIZACAO_DIVERGENTE_ALTA_CONFIANCA", "Revisar autorização divergente manualmente."),
         (
             "AMBIGUO_SEM_AUTORIZACAO_COMPATIVEL",
@@ -817,6 +861,27 @@ def compare_rede_shift(df_rede: pd.DataFrame, df_shift: pd.DataFrame) -> Compari
                 motivo=(
                     "Existem múltiplas O.S. do Shift com a mesma autorização, "
                     "mas campos críticos incompatíveis. Nenhum agrupamento automático foi feito."
+                ),
+            ))
+            continue
+
+        if bool(shift.get("_autorizacao_repetida_mesmo_vencimento", False)):
+            # Mesma autorização e mesmo vencimento no próprio arquivo do
+            # Shift, mas com números de parcela diferentes: padrão suspeito
+            # de erro de cadastro (ex.: a mesma cobrança lançada duas vezes
+            # com parcelas diferentes por engano). Não concilia automático
+            # contra a Rede — vai direto para revisão manual, como o
+            # agrupamento ambíguo de O.S.
+            details.append(_detail(
+                shift,
+                None,
+                ["AUTORIZACAO_REPETIDA_MESMO_VENCIMENTO_PARCELA_DIFERENTE"],
+                ["autorizacao", "parcela"],
+                "AUTORIZACAO_REPETIDA_MESMO_VENCIMENTO_PARCELA_DIFERENTE",
+                motivo=(
+                    "Mesma autorização e mesmo vencimento no arquivo do Shift, mas com "
+                    "números de parcela diferentes. Revisão manual obrigatória antes de "
+                    "conciliar — confirmar se não é a mesma cobrança lançada duas vezes."
                 ),
             ))
             continue
@@ -1092,7 +1157,8 @@ def compare_rede_shift(df_rede: pd.DataFrame, df_shift: pd.DataFrame) -> Compari
             "DIVERGENCIA|REVISAO_MANUAL|DADOS_PARCELA_INSUFICIENTES"
             "|REVISAR_AUTORIZACAO_DIVERGENTE|AMBIGUO_SEM_AUTORIZACAO_COMPATIVEL"
             "|AGRUPAMENTO_SHIFT_AMBIGUO|AGRUPAMENTO_OS_AMBIGUO"
-            "|AGRUPAMENTO_OS_VALOR_DIVERGENTE|DUPLICIDADE_EXATA_SUSPEITA",
+            "|AGRUPAMENTO_OS_VALOR_DIVERGENTE|DUPLICIDADE_EXATA_SUSPEITA"
+            "|AUTORIZACAO_REPETIDA_MESMO_VENCIMENTO_PARCELA_DIFERENTE",
             regex=True,
         ).sum()),
         "total_agrupamento_shift_ambiguo": int(
@@ -1107,6 +1173,9 @@ def compare_rede_shift(df_rede: pd.DataFrame, df_shift: pd.DataFrame) -> Compari
         "total_erro_cadastral_shift": int(status_col.str.contains("ERRO_CADASTRAL_SHIFT").sum()),
         "total_duplicidade": int(status_col.str.contains(
             "POSSIVEL_DUPLICIDADE|DUPLICIDADE_EXATA_SUSPEITA"
+        ).sum()),
+        "total_autorizacao_repetida_mesmo_vencimento": int(status_col.str.contains(
+            "AUTORIZACAO_REPETIDA_MESMO_VENCIMENTO_PARCELA_DIFERENTE"
         ).sum()),
         "total_cancelamento_contestacao": int(status_col.str.contains("CANCELAMENTO_CONTESTACAO").sum()),
         "valor_bruto_total_rede": amount_rede,
