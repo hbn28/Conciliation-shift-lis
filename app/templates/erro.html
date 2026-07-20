@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ titulo }} — Conciliação Rede x Shift</title>
+  <link rel="stylesheet" href="{{ url_for('static', path='/style.css') }}">
+</head>
+<body>
+  <main class="container narrow">
+    <nav class="main-nav">
+      <a href="/">Nova conciliação</a>
+      <a href="/verificar-conciliados">Verificar conciliados</a>
+      <a href="/historico">Histórico</a>
+      <a href="/unidades">Unidades</a>
+      <form action="/logout" method="post" class="logout-form"><button type="submit" class="link-button">Sair</button></form>
+    </nav>
+    <header>
+      <span class="eyebrow">Erro {{ status_code }}</span>
+      <h1>{{ titulo }}</h1>
+    </header>
+    <div class="panel">
+      <div class="alert">{{ mensagem }}</div>
+      {% if detalhes %}
+        <ul>
+          {% for item in detalhes %}
+            <li>{{ item }}</li>
+          {% endfor %}
+        </ul>
+      {% endif %}
+      <a class="cancel-link" href="{{ voltar_url }}">&larr; Voltar</a>
+    </div>
+  </main>
+</body>
+</html>

@@ -13,6 +13,7 @@ from urllib.parse import quote
 
 import pandas as pd
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -89,6 +90,102 @@ def _money(value) -> str:
 
 
 templates.env.filters["money"] = _money
+
+
+def _quer_html(request: Request) -> bool:
+    """True quando a requisição veio de navegação de navegador (form POST,
+    clique em link) e não de uma chamada fetch/JS da própria página.
+
+    As telas de erro "cruas" (JSON puro, ou a página preta de traceback do
+    Starlette) só aparecem para navegação normal, porque só nesses casos o
+    navegador renderiza a resposta como página. Chamadas fetch() no
+    JavaScript da aplicação (resultado.html, verificar_conciliados.html) não
+    mandam "text/html" no Accept, então continuam recebendo JSON puro, que é
+    o que o JavaScript espera para tratar o erro no próprio lugar."""
+    return "text/html" in request.headers.get("accept", "")
+
+
+_TITULOS_STATUS = {
+    400: "Requisição inválida",
+    404: "Não encontrado",
+    413: "Arquivo muito grande",
+    422: "Dados inválidos",
+    500: "Erro interno",
+}
+
+# Rótulos amigáveis dos campos do formulário de upload, usados para traduzir
+# erros de validação do FastAPI (campo ausente/tipo errado no multipart) em
+# mensagens que a pessoa usuária entende, em vez do JSON cru do Pydantic.
+_ROTULOS_CAMPOS = {
+    "arquivo_rede": "Arquivo da Rede Itaú",
+    "arquivo_shift": "Arquivo do Shift",
+    "unidade_id": "Unidade",
+    "data_conciliacao": "Data da conciliação",
+    "aba_rede": "Aba da planilha da Rede",
+    "aba_shift": "Aba da planilha do Shift",
+}
+
+
+def _pagina_erro(request: Request, status_code: int, mensagem: str, detalhes: list[str] | None = None):
+    return templates.TemplateResponse(
+        request,
+        "erro.html",
+        {
+            "request": request,
+            "status_code": status_code,
+            "titulo": _TITULOS_STATUS.get(status_code, "Ocorreu um erro"),
+            "mensagem": mensagem,
+            "detalhes": detalhes or [],
+            "voltar_url": request.headers.get("referer") or "/",
+        },
+        status_code=status_code,
+    )
+
+
+@app.exception_handler(HTTPException)
+async def erro_http(request: Request, exc: HTTPException):
+    if _quer_html(request):
+        return _pagina_erro(request, exc.status_code, str(exc.detail))
+    # Fora de navegação (fetch/JS da própria página), mantém o comportamento
+    # padrão do FastAPI: JSON puro, que é o que o JavaScript já trata.
+    return JSONResponse(
+        {"detail": exc.detail}, status_code=exc.status_code, headers=getattr(exc, "headers", None)
+    )
+
+
+@app.exception_handler(RequestValidationError)
+async def erro_validacao(request: Request, exc: RequestValidationError):
+    # 422 do FastAPI antes mesmo da rota rodar: normalmente campo obrigatório
+    # ausente ou com tipo errado no multipart/form-data (ex.: unidade_id não
+    # numérico). Ver regra do projeto sobre a rota /processar.
+    detalhes = []
+    for erro in exc.errors():
+        campo = str(erro["loc"][-1]) if erro.get("loc") else ""
+        rotulo = _ROTULOS_CAMPOS.get(campo, campo or "campo do formulário")
+        detalhes.append(f"{rotulo}: {erro.get('msg', 'valor inválido')}")
+    if _quer_html(request):
+        return _pagina_erro(
+            request, 422,
+            "Alguns campos do formulário não foram enviados corretamente.",
+            detalhes,
+        )
+    return JSONResponse({"detail": exc.errors()}, status_code=422)
+
+
+@app.exception_handler(Exception)
+async def erro_inesperado(request: Request, exc: Exception):
+    # Rede de segurança para exceções que escapam das rotas (ex.: fora dos
+    # try/except de /processar). Sem isso, o Starlette mostra uma página de
+    # traceback crua (ou 500 em branco fora de modo debug) — sempre logamos
+    # o traceback completo e nunca vazamos detalhes internos pra tela.
+    logger.exception("Erro não tratado em %s %s", request.method, request.url.path)
+    if _quer_html(request):
+        return _pagina_erro(
+            request, 500,
+            "Ocorreu um erro inesperado. Tente novamente; se o problema "
+            "continuar, contate o suporte.",
+        )
+    return JSONResponse({"detail": "Erro interno do servidor."}, status_code=500)
 
 
 @app.get("/health", include_in_schema=False)
