@@ -329,6 +329,40 @@
     </section>
     <section>
       <details>
+        <summary><h2 style="display:inline;">Encontradas somente no Shift ({{ total_somente_no_shift }})</h2></summary>
+        <p>Não têm correspondência na Rede. Prioridade menor de revisão — confira aqui apenas se precisar.</p>
+        <div class="table-wrap">
+          <table>
+            <thead><tr>
+              <th>Status</th><th>Motivo</th>
+              <th>Autorização Shift</th>
+              <th>Valor bruto Shift</th><th>Valor líquido Shift</th>
+              <th>Data vencimento Shift</th><th>Data venda Shift</th><th>Bandeira</th><th>Modalidade</th>
+              <th>Parcela Shift</th><th>Agrupamento</th>
+            </tr></thead>
+            <tbody>
+            {% for row in somente_no_shift %}
+              <tr>
+                <td><span class="badge">{{ row.status_comparacao }}</span></td>
+                <td>{{ row.motivo or "—" }}</td>
+                <td>{{ row.shift_autorizacao_normalizado or "—" }}</td>
+                <td>{{ row.valor_bruto_shift|money if row.valor_bruto_shift not in (none, "") else "—" }}</td>
+                <td>{{ row.valor_liquido_shift|money if row.valor_liquido_shift not in (none, "") else "—" }}</td>
+                <td>{{ row.shift_data_vencimento_normalizado or "—" }}</td>
+                <td>{{ row.data_venda_shift or "—" }}</td>
+                <td>{{ row.bandeira_shift or "—" }}</td>
+                <td>{{ row.modalidade_shift or "—" }}</td>
+                <td>{{ row.parcela_shift or "—" }}/{{ row.qtd_parcelas_shift or "—" }}</td>
+                <td>{% if row.houve_agrupamento_shift %}{{ row.linhas_shift_agrupadas }} linhas: {{ row.ids_linhas_shift }}{% else %}Não{% endif %}</td>
+              </tr>
+            {% else %}<tr><td colspan="11">Nenhuma linha encontrada somente no Shift.</td></tr>{% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </details>
+    </section>
+    <section>
+      <details>
         <summary><h2 style="display:inline;">Descartes auditados ({{ descartes|length }})</h2></summary>
         <div class="table-wrap">
           <table>

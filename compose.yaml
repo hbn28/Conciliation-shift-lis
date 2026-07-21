@@ -8,6 +8,11 @@ services:
     container_name: conciliacao-rede-shift
     ports:
       - "8001:8001"
+    environment:
+      # Login local apenas — usuário: admin / senha: admin123
+      # Gerado com scripts/hash_password.py. Para produção, troque a senha
+      # e gere um novo hash (nunca comitar senha em texto puro).
+      APP_USERS: "admin:pbkdf2$$120000$$af54b40fe1e4ec0c19ba18ed01cd7a00$$5f3b004d912a87212bc2e89aa57e9734ac48c2744a4e6d7c1b74581f597e5019"
     volumes:
       - conciliacao_data:/app/app/storage
     restart: unless-stopped

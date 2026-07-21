@@ -851,11 +851,26 @@ def compare_rede_shift(df_rede: pd.DataFrame, df_shift: pd.DataFrame) -> Compari
         statuses: list[str] = []
         divergent: list[str] = []
 
+        # Ambiguidade/duplicidade puramente do lado do Shift (grupos
+        # detectados em `_collapse_shift_splits`, antes de olhar a Rede).
+        # Só faz sentido classificar como "ambíguo" (revisão de um possível
+        # match) quando a autorização REALMENTE existe também na Rede — caso
+        # contrário é simplesmente uma linha sem correspondência na Rede, e
+        # deve ir para a seção "somente no Shift" (colapsada), não para os
+        # grupos abertos de ambiguidade/outras divergências.
+        shift_auth_preliminar = normalizar_autorizacao(shift.get("autorizacao"))
+        existe_na_rede = bool(
+            shift_auth_preliminar and rede_auth_index.get(shift_auth_preliminar)
+        )
+
         if bool(shift.get("_agrupamento_shift_ambiguo", False)):
+            ambiguo_statuses = ["AGRUPAMENTO_OS_AMBIGUO"]
+            if not existe_na_rede:
+                ambiguo_statuses.append("NAO_ENCONTRADO_NA_REDE")
             details.append(_detail(
                 shift,
                 None,
-                ["AGRUPAMENTO_OS_AMBIGUO"],
+                ambiguo_statuses,
                 ["agrupamento_shift"],
                 "AGRUPAMENTO_OS_AMBIGUO",
                 motivo=(
@@ -872,10 +887,13 @@ def compare_rede_shift(df_rede: pd.DataFrame, df_shift: pd.DataFrame) -> Compari
             # com parcelas diferentes por engano). Não concilia automático
             # contra a Rede — vai direto para revisão manual, como o
             # agrupamento ambíguo de O.S.
+            repetida_statuses = ["AUTORIZACAO_REPETIDA_MESMO_VENCIMENTO_PARCELA_DIFERENTE"]
+            if not existe_na_rede:
+                repetida_statuses.append("NAO_ENCONTRADO_NA_REDE")
             details.append(_detail(
                 shift,
                 None,
-                ["AUTORIZACAO_REPETIDA_MESMO_VENCIMENTO_PARCELA_DIFERENTE"],
+                repetida_statuses,
                 ["autorizacao", "parcela"],
                 "AUTORIZACAO_REPETIDA_MESMO_VENCIMENTO_PARCELA_DIFERENTE",
                 motivo=(
@@ -898,7 +916,7 @@ def compare_rede_shift(df_rede: pd.DataFrame, df_shift: pd.DataFrame) -> Compari
         if bool(shift.get("_duplicidade_exata_suspeita", False)):
             statuses.append("DUPLICIDADE_EXATA_SUSPEITA")
 
-        shift_auth = normalizar_autorizacao(shift.get("autorizacao"))
+        shift_auth = shift_auth_preliminar
         candidates = (
             [i for i in rede_auth_index.get(shift_auth, []) if i not in used_rede]
             if shift_auth else []
@@ -1197,4 +1215,16 @@ def compare_rede_shift(df_rede: pd.DataFrame, df_shift: pd.DataFrame) -> Compari
         if field in df_shift.columns and df_shift[field].notna().any():
             summary[key] = df_shift[field].dropna().value_counts().to_dict()
     summary.update(resumo_impacto_financeiro(detailed))
+
+    # Linhas "encontrado somente no Shift" (sem correspondência na Rede) vão
+    # por último no relatório: têm prioridade menor de leitura que as demais
+    # categorias (conciliados, divergências, somente na Rede etc.), que devem
+    # aparecer primeiro para não obrigar rolagem até o final da planilha.
+    somente_shift_mask = detailed["status_comparacao"].str.contains(
+        "NAO_ENCONTRADO_NA_REDE", na=False
+    )
+    detailed = pd.concat(
+        [detailed[~somente_shift_mask], detailed[somente_shift_mask]]
+    ).reset_index(drop=True)
+
     return ComparisonResult(summary, detailed, quality)

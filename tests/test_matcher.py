@@ -161,6 +161,18 @@ def test_diferenca_de_dois_centavos_e_conciliada_mas_permanece_no_painel():
     assert detail["diferenca_valor_bruto"] == Decimal("0.02")
 
 
+def test_somente_no_shift_aparece_por_ultimo_no_relatorio():
+    rede = [_row("111111", "1", "10,00")]
+    shift = [
+        {**_row("222222", "2", "20,00"), "__os_shift": "OS_SOMENTE_SHIFT"},
+        _row("111111", "1", "10,00"),
+    ]
+    result = _compare(rede, shift)
+    statuses = list(result.detalhado["status_comparacao"])
+    assert statuses[-1] == "NAO_ENCONTRADO_NA_REDE"
+    assert "NAO_ENCONTRADO_NA_REDE" not in statuses[:-1]
+
+
 def test_duas_linhas_shift_podem_formar_uma_parcela_rede():
     rede_row = _row("123456", "123", "69,00")
     shift_a = {**_row("123456", "", "34,50"), "__os_shift": "OS1"}
@@ -196,6 +208,25 @@ def test_agrupamento_com_bandeiras_conflitantes_e_ambiguo():
     result = _compare(rede, shift)
     shift_rows = result.detalhado[result.detalhado["linha_shift"].notna()]
     assert shift_rows["status_comparacao"].str.contains("AGRUPAMENTO_OS_AMBIGUO").all()
+
+
+def test_agrupamento_ambiguo_sem_autorizacao_na_rede_vira_somente_no_shift():
+    # Regra pedida pelo usuário: "agrupamento ambíguo" só faz sentido quando
+    # a autorização existe tanto na Rede quanto no Shift (é preciso ter uma
+    # transação real na Rede para revisar contra o agrupamento ambíguo do
+    # Shift). Se a autorização nem existe na Rede, a linha deve ser tratada
+    # como "somente no Shift" (NAO_ENCONTRADO_NA_REDE), não como ambiguidade
+    # de agrupamento — e assim cair na seção colapsada da tela, não nos
+    # grupos abertos de divergência.
+    rede = [_row_secundaria("999999", "50,00", "50,00", total="1")]
+    shift = [
+        _row_secundaria("777777", "10,00", "9,50", bandeira="Visa", total="1", __os_shift="OS1"),
+        _row_secundaria("777777", "20,00", "19,50", bandeira="Mastercard", total="1", __os_shift="OS2"),
+    ]
+    result = _compare(rede, shift)
+    shift_rows = result.detalhado[result.detalhado["linha_shift"].notna()]
+    assert shift_rows["status_comparacao"].str.contains("AGRUPAMENTO_OS_AMBIGUO").all()
+    assert shift_rows["status_comparacao"].str.contains("NAO_ENCONTRADO_NA_REDE").all()
 
 
 def test_agrupamento_mesma_autorizacao_soma_diverge_da_rede():
@@ -283,6 +314,30 @@ def test_parcelas_diferentes_mesmo_vencimento_vai_para_revisao_manual():
     assert (rede_rows["status_comparacao"] == "NAO_ENCONTRADO_NO_SHIFT").all()
     assert result.resumo["total_autorizacao_repetida_mesmo_vencimento"] == 2
     assert result.resumo["total_com_divergencia"] >= 2
+
+
+def test_autorizacao_repetida_mesmo_vencimento_sem_correspondencia_na_rede_vira_somente_no_shift():
+    # Mesma regra do agrupamento ambíguo: se a autorização repetida (mesmo
+    # vencimento, parcelas diferentes) nem existe na Rede, não faz sentido
+    # pedir revisão manual de "possível erro de cadastro" contra uma
+    # transação que não existe — é simplesmente uma linha só no Shift.
+    rede = [_row_secundaria("111111", "10,00", "10,00", parcela="1", total="1")]
+    shift = [
+        _row_secundaria(
+            "222222", "40,67", "40,67", parcela="1", total="6", __os_shift="OS1",
+            **{"data original de vencimento": "17/07/2026"},
+        ),
+        _row_secundaria(
+            "222222", "52,67", "52,67", parcela="2", total="6", __os_shift="OS2",
+            **{"data original de vencimento": "17/07/2026"},
+        ),
+    ]
+    result = _compare(rede, shift)
+    shift_rows = result.detalhado[result.detalhado["linha_shift"].notna()]
+    assert shift_rows["status_comparacao"].str.contains(
+        "AUTORIZACAO_REPETIDA_MESMO_VENCIMENTO_PARCELA_DIFERENTE"
+    ).all()
+    assert shift_rows["status_comparacao"].str.contains("NAO_ENCONTRADO_NA_REDE").all()
 
 
 def test_mesma_parcela_e_mesma_autorizacao_com_campos_conflitantes_continua_ambigua():

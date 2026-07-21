@@ -20,6 +20,8 @@ from app.main import (  # noqa: E402
     _agregar_por_autorizacao,
     _construir_linhas_verificacao,
     _formatar_janela_datas,
+    _montar_contexto_resultado,
+    _status_e_conciliado,
 )
 
 
@@ -177,6 +179,45 @@ def test_construir_linhas_verificacao_marca_parcial_quando_so_uma_parcela_concil
     linha = linhas[0]
     assert linha["conciliada"] is False
     assert linha["status"] == "PARCIALMENTE CONCILIADA (1/2 parcelas)"
+
+
+def test_status_e_conciliado_inclui_divergencia_tolerada_de_2_centavos():
+    # Regressão: parcelas com diferença de até R$ 0,02 (valor bruto ou
+    # líquido) ficavam de fora dos cards de cópia e da marcação de
+    # autorizações em /resultado, porque a checagem antiga comparava
+    # `status_comparacao` contra uma lista fixa de strings exatas e não
+    # incluía "CONCILIADO_COM_DIVERGENCIA_TOLERADA" nem combinações como
+    # agrupamento + tolerância.
+    assert _status_e_conciliado("CONCILIADO_COM_DIVERGENCIA_TOLERADA") is True
+    assert _status_e_conciliado(
+        "CONCILIADO_POR_AGRUPAMENTO_OS_MESMA_AUTORIZACAO + DIVERGENCIA_TOLERADA_ATE_2_CENTAVOS"
+    ) is True
+    assert _status_e_conciliado("CONCILIADO") is True
+    assert _status_e_conciliado("DIVERGENCIA_VALOR_BRUTO") is False
+    # Divergência tolerada somada a uma divergência real não deve contar
+    # como conciliada.
+    assert _status_e_conciliado("DIVERGENCIA_PARCELA + DIVERGENCIA_TOLERADA_ATE_2_CENTAVOS") is False
+
+
+def test_montar_contexto_resultado_separa_somente_no_shift_da_tabela_principal():
+    # As linhas "encontradas somente no Shift" (sem correspondência na Rede)
+    # saem da tabela paginada principal de divergências e vão para a seção
+    # separada `somente_no_shift`, fechada por padrão na tela — não devem
+    # contar em `total_divergencias` nem ocupar espaço de página.
+    detalhado = [
+        {"status_comparacao": "DIVERGENCIA_VALOR_BRUTO", "shift_autorizacao_normalizado": "1"},
+        {"status_comparacao": "NAO_ENCONTRADO_NA_REDE", "shift_autorizacao_normalizado": "2"},
+        {"status_comparacao": "NAO_ENCONTRADO_NA_REDE", "shift_autorizacao_normalizado": "3"},
+        {"status_comparacao": "CONCILIADO", "shift_autorizacao_normalizado": "4"},
+    ]
+    contexto = _montar_contexto_resultado(
+        {"resumo": {}, "detalhado": detalhado, "qualidade_shift": []},
+        conciliacao=None, arquivo_rede="", page_param="1",
+    )
+    assert contexto["total_divergencias"] == 1
+    assert [row["shift_autorizacao_normalizado"] for row in contexto["divergencias"]] == ["1"]
+    assert contexto["total_somente_no_shift"] == 2
+    assert {row["shift_autorizacao_normalizado"] for row in contexto["somente_no_shift"]} == {"2", "3"}
 
 
 def test_construir_linhas_verificacao_nao_conciliada():

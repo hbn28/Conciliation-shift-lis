@@ -410,6 +410,21 @@ def _agregar_por_autorizacao(conciliados: list[dict]) -> dict[tuple[str, str, st
     return resultado
 
 
+def _status_e_conciliado(status_comparacao: str) -> bool:
+    """Uma linha é considerada conciliada (aparece nos cards de cópia e nas
+    marcações de autorização) quando todos os status combinados em
+    `status_comparacao` (separados por " + ") são "CONCILIADO*" ou a
+    divergência tolerada de até R$ 0,02. Isso cobre também o caso de
+    conciliação com diferença tolerada (`CONCILIADO_COM_DIVERGENCIA_TOLERADA`
+    e combinações como agrupamento + tolerância), que antes ficavam de fora
+    por comparação exata de string."""
+    partes = [parte.strip() for parte in status_comparacao.split(" + ") if parte.strip()]
+    return bool(partes) and all(
+        parte.startswith("CONCILIADO") or parte == "DIVERGENCIA_TOLERADA_ATE_2_CENTAVOS"
+        for parte in partes
+    )
+
+
 def _montar_contexto_resultado(
     data: dict, conciliacao, arquivo_rede: str, page_param: str,
 ) -> dict:
@@ -418,19 +433,13 @@ def _montar_contexto_resultado(
     paginação, e agregação de autorizações conciliadas. Extraído da rota
     `/resultado/{result_id}` para manter o handler HTTP enxuto."""
     autorizacoes_marcadas = conciliacao.autorizacoes_marcadas if conciliacao else {}
-    status_conciliado = {
-        "CONCILIADO",
-        "CONCILIADO_POR_AGRUPAMENTO_SHIFT",
-        "CONCILIADO_POR_AGRUPAMENTO_OS_MESMA_AUTORIZACAO",
-        "CONCILIADO_COM_PARCELA_COMPATIVEL_POR_RESTANTES",
-    }
     divergencias = [
         row for row in data["detalhado"]
-        if row["status_comparacao"] not in status_conciliado
+        if not _status_e_conciliado(row["status_comparacao"])
     ]
     conciliados = [
         row for row in data["detalhado"]
-        if row["status_comparacao"] in status_conciliado
+        if _status_e_conciliado(row["status_comparacao"])
     ]
     arquivos_rede = sorted({
         row.get("rede_arquivo_origem")
@@ -446,7 +455,20 @@ def _montar_contexto_resultado(
             row for row in conciliados
             if row.get("rede_arquivo_origem") == arquivo_rede
         ]
+    # "Encontradas somente no Shift" (sem correspondência na Rede) têm menor
+    # prioridade de leitura do que as demais divergências — saem da tabela
+    # paginada principal e vão para uma seção separada, fechada por padrão,
+    # que o usuário só abre se quiser conferir.
+    somente_no_shift = [
+        row for row in divergencias
+        if "NAO_ENCONTRADO_NA_REDE" in (row.get("status_comparacao") or "")
+    ]
+    divergencias = [
+        row for row in divergencias
+        if "NAO_ENCONTRADO_NA_REDE" not in (row.get("status_comparacao") or "")
+    ]
     divergencias = sort_divergences(divergencias)
+    somente_no_shift = sort_divergences(somente_no_shift)
     try:
         page = max(int(page_param or "1"), 1)
     except ValueError:
@@ -470,6 +492,8 @@ def _montar_contexto_resultado(
         "resumo": data["resumo"],
         "divergencias": divergencias_paginadas,
         "total_divergencias": total_divergencias,
+        "somente_no_shift": somente_no_shift,
+        "total_somente_no_shift": len(somente_no_shift),
         "pagina_atual": page,
         "total_paginas": total_paginas,
         "qualidade": data["qualidade_shift"][:200],
