@@ -112,19 +112,18 @@
               </div>
             </div>
             <div class="autorizacao-acoes">
-              <details class="autorizacao-detalhes">
-                <summary class="secondary autorizacao-btn" title="Ver detalhes da parcela" aria-label="Ver detalhes da parcela">ℹ</summary>
-                <div class="autorizacao-detalhes-painel">
-                  <div><span>Venc. Shift</span><strong>{{ dados.janela_vencimento_shift or "—" }}</strong></div>
-                  <div><span>Venc. Rede</span><strong>{{ dados.janela_vencimento_rede or "—" }}</strong></div>
-                  <div><span>Valor bruto Shift</span><strong>{{ dados.valor_bruto_shift_total|money if dados.valor_bruto_shift_total is not none else "—" }}</strong></div>
-                  <div><span>Valor líquido Shift</span><strong>{{ dados.valor_liquido_shift_total|money if dados.valor_liquido_shift_total is not none else "—" }}</strong></div>
-                  <div><span>Valor bruto Rede</span><strong>{{ dados.valor_bruto_rede_total|money if dados.valor_bruto_rede_total is not none else "—" }}</strong></div>
-                  <div><span>Valor líquido Rede</span><strong>{{ dados.valor_liquido_rede_total|money if dados.valor_liquido_rede_total is not none else "—" }}</strong></div>
-                  <div><span>Parcela Shift</span><strong>{{ dados.parcela_shift or "—" }}</strong></div>
-                  <div><span>Parcela Rede</span><strong>{{ dados.parcela_rede or "—" }}</strong></div>
-                </div>
-              </details>
+              <button type="button" class="secondary autorizacao-btn" title="Ver detalhes da parcela" aria-label="Ver detalhes da parcela"
+                data-chave="{{ chave_marca }}"
+                data-venc-shift="{{ dados.janela_vencimento_shift or "—" }}"
+                data-venc-rede="{{ dados.janela_vencimento_rede or "—" }}"
+                data-bruto-shift="{{ dados.valor_bruto_shift_total|money if dados.valor_bruto_shift_total is not none else "—" }}"
+                data-liquido-shift="{{ dados.valor_liquido_shift_total|money if dados.valor_liquido_shift_total is not none else "—" }}"
+                data-bruto-rede="{{ dados.valor_bruto_rede_total|money if dados.valor_bruto_rede_total is not none else "—" }}"
+                data-liquido-rede="{{ dados.valor_liquido_rede_total|money if dados.valor_liquido_rede_total is not none else "—" }}"
+                data-parcela-shift="{{ dados.parcela_shift_exibicao }}"
+                data-parcela-rede="{{ dados.parcela_rede_exibicao }}"
+                onclick="abrirDetalhesParcela(this)"
+              >ℹ</button>
               <button type="button" class="secondary autorizacao-btn" title="Copiar autorização" aria-label="Copiar autorização" onclick="
                 var valor = this.closest('.autorizacao-item').dataset.autorizacao;
                 var btn = this;
@@ -156,6 +155,63 @@
         {% endfor %}
       </div>
       <script>
+        // Painel de detalhes da parcela (botão "ℹ"): é uma sobreposição de
+        // verdade — criado sob demanda e anexado ao <body> com
+        // `position: fixed`, então nunca empurra os cards vizinhos no grid
+        // de autorizações (diferente de um <details> comum, cujo conteúdo
+        // aberto ocupa espaço no fluxo normal da página).
+        var CAMPOS_DETALHES_PARCELA = [
+          ["vencShift", "Venc. Shift"], ["vencRede", "Venc. Rede"],
+          ["brutoShift", "Valor bruto Shift"], ["liquidoShift", "Valor líquido Shift"],
+          ["brutoRede", "Valor bruto Rede"], ["liquidoRede", "Valor líquido Rede"],
+          ["parcelaShift", "Parcela Shift"], ["parcelaRede", "Parcela Rede"],
+        ];
+
+        function fecharDetalhesParcela() {
+          var painel = document.getElementById("painel-detalhes-parcela");
+          if (painel) painel.remove();
+          document.removeEventListener("click", _fecharDetalhesParcelaAoClicarFora, true);
+        }
+
+        function _fecharDetalhesParcelaAoClicarFora(evento) {
+          var painel = document.getElementById("painel-detalhes-parcela");
+          if (!painel) return;
+          if (!painel.contains(evento.target) && evento.target.dataset.chave === undefined) {
+            fecharDetalhesParcela();
+          }
+        }
+
+        function abrirDetalhesParcela(botao) {
+          var painelAtual = document.getElementById("painel-detalhes-parcela");
+          var mesmoBotao = painelAtual && painelAtual.dataset.origem === botao.dataset.chave;
+          fecharDetalhesParcela();
+          if (mesmoBotao) return; // clicar de novo no mesmo botão só fecha
+
+          var painel = document.createElement("div");
+          painel.id = "painel-detalhes-parcela";
+          painel.className = "autorizacao-detalhes-painel-flutuante";
+          painel.dataset.origem = botao.dataset.chave;
+          painel.innerHTML = CAMPOS_DETALHES_PARCELA.map(function (campo) {
+            var valor = botao.dataset[campo[0]] || "—";
+            return "<div><span>" + campo[1] + "</span><strong>" + valor + "</strong></div>";
+          }).join("");
+          document.body.appendChild(painel);
+
+          var rect = botao.getBoundingClientRect();
+          var topo = rect.bottom + 6;
+          var esquerda = rect.right - painel.offsetWidth;
+          if (esquerda < 8) esquerda = 8;
+          if (topo + painel.offsetHeight > window.innerHeight - 8) {
+            topo = rect.top - painel.offsetHeight - 6;
+          }
+          painel.style.top = topo + "px";
+          painel.style.left = esquerda + "px";
+
+          setTimeout(function () {
+            document.addEventListener("click", _fecharDetalhesParcelaAoClicarFora, true);
+          }, 0);
+        }
+
         function atualizarTotaisAutorizacoesResultado() {
           var itens = Array.from(document.querySelectorAll('.autorizacao-item'));
           var marcadas = itens.filter(function (item) { return item.dataset.marcada === '1'; }).length;

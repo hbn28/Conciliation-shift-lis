@@ -371,6 +371,34 @@ def _decimal_ou_none(valor) -> Decimal | None:
         return None
 
 
+def _formatar_numero_parcela(valor) -> str | None:
+    """Formata um número de parcela removendo ".0" de valores que viraram
+    float no pandas (uma coluna numérica com alguma célula vazia no meio
+    faz o pandas promover a coluna inteira pra float64, então "2" chega
+    aqui como 2.0). None se não houver valor."""
+    if valor is None:
+        return None
+    try:
+        if pd.isna(valor):
+            return None
+    except (TypeError, ValueError):
+        pass
+    try:
+        return str(int(float(valor)))
+    except (TypeError, ValueError):
+        return str(valor)
+
+
+def _formatar_parcela_com_total(atual, total) -> str:
+    """Combina parcela atual e total num único texto "1/2". Se só um dos
+    dois existir, mostra só ele; se nenhum existir, mostra "—"."""
+    atual_fmt = _formatar_numero_parcela(atual)
+    total_fmt = _formatar_numero_parcela(total)
+    if atual_fmt and total_fmt:
+        return f"{atual_fmt}/{total_fmt}"
+    return atual_fmt or total_fmt or "—"
+
+
 def _agregar_por_autorizacao(conciliados: list[dict]) -> dict[tuple[str, str, str], dict]:
     """Agrupa as linhas conciliadas por (autorização, vencimento Shift, valor).
 
@@ -443,6 +471,14 @@ def _agregar_por_autorizacao(conciliados: list[dict]) -> dict[tuple[str, str, st
             "qtd_parcelas_shift": item["qtd_parcelas_shift"],
             "parcela_rede": item["parcela_rede"],
             "qtd_parcelas_rede": item["qtd_parcelas_rede"],
+            # Exibição pronta pro painel de detalhes ("1/2" em vez do "1.0"
+            # que o pandas produz quando a coluna vira float64).
+            "parcela_shift_exibicao": _formatar_parcela_com_total(
+                item["parcela_shift"], item["qtd_parcelas_shift"]
+            ),
+            "parcela_rede_exibicao": _formatar_parcela_com_total(
+                item["parcela_rede"], item["qtd_parcelas_rede"]
+            ),
             "valor_bruto_total": item["valor_bruto_total"],
             "valor_bruto_shift_total": item["valor_bruto_shift_total"],
             "valor_liquido_shift_total": item["valor_liquido_shift_total"],

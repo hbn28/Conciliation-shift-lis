@@ -20,6 +20,7 @@ from app.main import (  # noqa: E402
     _agregar_por_autorizacao,
     _construir_linhas_verificacao,
     _formatar_janela_datas,
+    _formatar_parcela_com_total,
     _montar_contexto_resultado,
     _status_e_conciliado,
 )
@@ -115,6 +116,32 @@ def test_agregar_por_autorizacao_soma_valor_de_transacoes_divididas_no_shift():
     item = agregado[("999", "2026-07-29", "50.00")]
     assert item["quantidade_linhas"] == 2
     assert item["valor_bruto_total"] == Decimal("50.00")
+
+
+def test_formatar_parcela_com_total_remove_ponto_zero_do_pandas():
+    # Bug real: colunas de parcela viram float64 no pandas quando alguma
+    # célula está vazia no meio da coluna, então "2" chega aqui como 2.0 —
+    # o painel de detalhes mostrava "2.0/3.0" em vez de "2/3".
+    assert _formatar_parcela_com_total(2.0, 3.0) == "2/3"
+    assert _formatar_parcela_com_total("1", "2") == "1/2"
+    assert _formatar_parcela_com_total(1, None) == "1"
+    assert _formatar_parcela_com_total(None, None) == "—"
+
+
+def test_agregar_por_autorizacao_expoe_parcela_formatada_sem_ponto_zero():
+    conciliados = [{
+        "shift_autorizacao_normalizado": "321",
+        "shift_data_vencimento_normalizado": "2026-07-29",
+        "valor_bruto_shift": "10.00",
+        "parcela_shift": 2.0,
+        "qtd_parcelas_shift": 3.0,
+        "parcela_rede": 2.0,
+        "qtd_parcelas_rede": 3.0,
+    }]
+    agregado = _agregar_por_autorizacao(conciliados)
+    item = list(agregado.values())[0]
+    assert item["parcela_shift_exibicao"] == "2/3"
+    assert item["parcela_rede_exibicao"] == "2/3"
 
 
 def test_agregar_por_autorizacao_expoe_detalhes_por_lado():
