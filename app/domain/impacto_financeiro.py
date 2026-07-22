@@ -47,6 +47,20 @@ def _has_status(status_comparacao: str | None, status: str) -> bool:
     return status in status_comparacao.split(" + ")
 
 
+def _esta_conciliado(status_comparacao: str | None) -> bool:
+    """Uma linha é considerada conciliada quando todos os status combinados
+    (separados por " + ") começam com "CONCILIADO" ou são a tolerância de
+    até R$ 0,02. Mesmo critério usado em `main.py` para separar conciliados
+    de divergências na tela de resultado."""
+    if not status_comparacao:
+        return False
+    partes = [parte.strip() for parte in str(status_comparacao).split(" + ") if parte.strip()]
+    return bool(partes) and all(
+        parte.startswith("CONCILIADO") or parte == "DIVERGENCIA_TOLERADA_ATE_2_CENTAVOS"
+        for parte in partes
+    )
+
+
 def _diferenca_assinada(row: pd.Series) -> Decimal | None:
     """Calcula a diferença com sinal no padrão Rede - Shift.
 
@@ -211,8 +225,10 @@ def aplicar_impacto_financeiro(detalhado: pd.DataFrame) -> pd.DataFrame:
 
 def resumo_impacto_financeiro(detalhado: pd.DataFrame) -> dict:
     """Calcula os agregados de impacto financeiro para o resumo geral:
-    total por status, impacto financeiro confirmado (soma) e valor total
-    em revisão (soma). Nunca conta valor em revisão como confirmado."""
+    total por status, impacto financeiro confirmado (soma), valor total
+    em revisão (soma), e o somatório de todas as linhas conciliadas
+    (Rede como crédito positivo, Shift como débito negativo — ver
+    `_diferenca_assinada`). Nunca conta valor em revisão como confirmado."""
     if detalhado is None or detalhado.empty:
         return {
             "impacto_financeiro_confirmado": ZERO,
@@ -237,8 +253,7 @@ def resumo_impacto_financeiro(detalhado: pd.DataFrame) -> dict:
         status_col = detalhado.get("status_comparacao")
     if status_col is not None:
         for idx, value in status_col.items():
-            status_text = str(value)
-            if "DIVERGENCIA_TOLERADA_ATE_2_CENTAVOS" not in status_text:
+            if not _esta_conciliado(value):
                 continue
             decimal_value = _diferenca_assinada(detalhado.loc[idx])
             if decimal_value is not None:

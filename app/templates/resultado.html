@@ -55,8 +55,6 @@
     <section class="panel totals">
       <div><span>Qtd. divergências na página</span><strong>{{ divergencias|length }}</strong></div>
       <div><span>Total de divergências</span><strong>{{ total_divergencias }}</strong></div>
-      <div class="danger"><span>Impacto financeiro confirmado</span><strong>{{ resumo.impacto_financeiro_confirmado|money }}</strong></div>
-      <div class="warning"><span>Valor total em revisão</span><strong>{{ resumo.valor_total_em_revisao|money }}</strong></div>
       <div><span>Somatório das divergências conciliadas</span><strong>{{ resumo.somatorio_divergencias_toleradas_conciliadas|money }}</strong></div>
     </section>
     {% if total_paginas > 1 %}

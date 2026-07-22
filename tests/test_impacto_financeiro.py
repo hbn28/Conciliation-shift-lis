@@ -178,4 +178,29 @@ def test_resumo_soma_divergencias_toleradas_conciliadas():
         )),
     ])
     resumo = resumo_impacto_financeiro(detalhado)
+    # As duas linhas toleradas somam -0,02 + 0,01 = -0,01; a linha CONCILIADO
+    # comum também entra na soma (é conciliada), mas como Rede e Shift têm o
+    # mesmo valor, sua diferença é 0 e não altera o total.
+    assert resumo["somatorio_divergencias_toleradas_conciliadas"] == Decimal("-0.01")
+
+
+def test_resumo_soma_todas_as_conciliadas_rede_credito_shift_debito():
+    # Regra pedida: para linhas conciliadas, Rede entra como crédito
+    # (positivo) e Shift como débito (negativo) — inclui qualquer status
+    # "CONCILIADO*", não só as com diferença tolerada.
+    detalhado = pd.DataFrame([
+        calcular_impacto_financeiro(_row(
+            "CONCILIADO_POR_AGRUPAMENTO_OS_MESMA_AUTORIZACAO + DIVERGENCIA_TOLERADA_ATE_2_CENTAVOS",
+            valor_bruto_shift=Decimal("200.00"),
+            valor_bruto_rede=Decimal("199.99"),
+        )),
+        calcular_impacto_financeiro(_row(
+            "DIVERGENCIA_VALOR_BRUTO",
+            valor_bruto_shift=Decimal("100.00"),
+            valor_bruto_rede=Decimal("90.00"),
+        )),
+    ])
+    resumo = resumo_impacto_financeiro(detalhado)
+    # A linha CONCILIADO_POR_AGRUPAMENTO entra (rede - shift = -0.01); a
+    # DIVERGENCIA_VALOR_BRUTO não é conciliada, então fica de fora da soma.
     assert resumo["somatorio_divergencias_toleradas_conciliadas"] == Decimal("-0.01")
