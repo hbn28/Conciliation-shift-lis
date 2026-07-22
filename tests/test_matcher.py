@@ -161,6 +161,17 @@ def test_diferenca_de_dois_centavos_e_conciliada_mas_permanece_no_painel():
     assert detail["diferenca_valor_bruto"] == Decimal("0.02")
 
 
+def test_diferenca_de_dois_centavos_nao_conta_no_card_de_divergencias():
+    # Bug real: o card "Divergências" contava CONCILIADO_COM_DIVERGENCIA_TOLERADA
+    # e DIVERGENCIA_TOLERADA_ATE_2_CENTAVOS só porque o texto do status contém
+    # a palavra "DIVERGENCIA" — mesmo esses casos já sendo tratados como
+    # conciliados em todo o resto do sistema (card próprio "Toleradas até R$
+    # 0,02", tabela de conciliados, etc.).
+    result = _compare([_row("123456", "123", "10,02")], [_row("123456", "", "10,00")])
+    assert result.resumo["total_com_divergencia"] == 0
+    assert result.resumo["total_divergencia_tolerada"] == 1
+
+
 def test_somente_no_shift_aparece_por_ultimo_no_relatorio():
     rede = [_row("111111", "1", "10,00")]
     shift = [

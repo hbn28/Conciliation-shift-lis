@@ -1172,7 +1172,12 @@ def compare_rede_shift(df_rede: pd.DataFrame, df_shift: pd.DataFrame) -> Compari
         "total_so_rede": int(status_col.str.contains("NAO_ENCONTRADO_NO_SHIFT").sum()),
         "total_so_shift": int(status_col.str.contains("NAO_ENCONTRADO_NA_REDE").sum()),
         "total_com_divergencia": int(status_col.str.contains(
-            "DIVERGENCIA|REVISAO_MANUAL|DADOS_PARCELA_INSUFICIENTES"
+            # "DIVERGENCIA(?!_TOLERADA)" exclui CONCILIADO_COM_DIVERGENCIA_TOLERADA
+            # e DIVERGENCIA_TOLERADA_ATE_2_CENTAVOS: diferenças de até R$ 0,02
+            # contam como conciliadas (ver total_divergencia_tolerada), não
+            # como divergência neste card. Bug real: antes, esses status
+            # entravam aqui só por conterem a palavra "DIVERGENCIA".
+            "DIVERGENCIA(?!_TOLERADA)|REVISAO_MANUAL|DADOS_PARCELA_INSUFICIENTES"
             "|REVISAR_AUTORIZACAO_DIVERGENTE|AMBIGUO_SEM_AUTORIZACAO_COMPATIVEL"
             "|AGRUPAMENTO_SHIFT_AMBIGUO|AGRUPAMENTO_OS_AMBIGUO"
             "|AGRUPAMENTO_OS_VALOR_DIVERGENTE|DUPLICIDADE_EXATA_SUSPEITA"
