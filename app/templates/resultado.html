@@ -191,9 +191,27 @@
           painel.id = "painel-detalhes-parcela";
           painel.className = "autorizacao-detalhes-painel-flutuante";
           painel.dataset.origem = botao.dataset.chave;
+          // Posição/visibilidade também via inline style (não só a classe
+          // CSS): se o navegador estiver com uma versão em cache do
+          // style.css sem essa classe, o painel ainda assim aparece
+          // corretamente, em vez de ficar "invisível" no fim da página.
+          painel.style.position = "fixed";
+          painel.style.zIndex = "9999";
+          painel.style.background = "#fff";
+          painel.style.border = "1px solid #d8e2ea";
+          painel.style.borderRadius = "10px";
+          painel.style.boxShadow = "0 10px 25px rgba(16,42,67,.35)";
+          painel.style.padding = ".6rem .75rem";
+          painel.style.minWidth = "230px";
+          painel.style.font = "13px/1.4 Inter, Segoe UI, Arial, sans-serif";
           painel.innerHTML = CAMPOS_DETALHES_PARCELA.map(function (campo) {
             var valor = botao.dataset[campo[0]] || "—";
-            return "<div><span>" + campo[1] + "</span><strong>" + valor + "</strong></div>";
+            return (
+              '<div style="display:flex;justify-content:space-between;gap:.6rem;padding:.15rem 0;">'
+              + '<span style="color:#627d98;">' + campo[1] + '</span>'
+              + '<strong style="color:#102a43;white-space:nowrap;">' + valor + '</strong>'
+              + '</div>'
+            );
           }).join("");
           document.body.appendChild(painel);
 
