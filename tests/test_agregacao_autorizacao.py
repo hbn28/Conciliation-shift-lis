@@ -117,6 +117,56 @@ def test_agregar_por_autorizacao_soma_valor_de_transacoes_divididas_no_shift():
     assert item["valor_bruto_total"] == Decimal("50.00")
 
 
+def test_agregar_por_autorizacao_expoe_detalhes_por_lado():
+    # Painel de detalhes (ícone "i" ao lado de copiar/marcar em /resultado):
+    # precisa dos valores bruto/líquido de cada lado separadamente (não só
+    # o valor_bruto_total combinado) e da parcela de cada lado.
+    conciliados = [{
+        "shift_autorizacao_normalizado": "456",
+        "shift_data_vencimento_normalizado": "2026-07-29",
+        "rede_data_vencimento_normalizado": "2026-07-29",
+        "valor_bruto_shift": "100.00",
+        "valor_bruto_rede": "99.99",
+        "valor_liquido_shift": "95.00",
+        "valor_liquido_rede": "94.99",
+        "parcela_shift": "1",
+        "parcela_rede": "1",
+    }]
+    agregado = _agregar_por_autorizacao(conciliados)
+    item = list(agregado.values())[0]
+    assert item["valor_bruto_shift_total"] == Decimal("100.00")
+    assert item["valor_bruto_rede_total"] == Decimal("99.99")
+    assert item["valor_liquido_shift_total"] == Decimal("95.00")
+    assert item["valor_liquido_rede_total"] == Decimal("94.99")
+    assert item["parcela_shift"] == "1"
+    assert item["parcela_rede"] == "1"
+
+
+def test_agregar_por_autorizacao_soma_valores_por_lado_quando_ha_mais_de_uma_linha():
+    conciliados = [
+        {
+            "shift_autorizacao_normalizado": "789",
+            "shift_data_vencimento_normalizado": "2026-07-29",
+            "valor_bruto_shift": "30.00",
+            "valor_liquido_shift": "29.00",
+        },
+        {
+            "shift_autorizacao_normalizado": "789",
+            "shift_data_vencimento_normalizado": "2026-07-29",
+            "valor_bruto_shift": "20.00",
+            "valor_liquido_shift": "19.00",
+        },
+    ]
+    agregado = _agregar_por_autorizacao(conciliados)
+    item = list(agregado.values())[0]
+    assert item["valor_bruto_shift_total"] == Decimal("50.00")
+    assert item["valor_liquido_shift_total"] == Decimal("48.00")
+    # Nenhuma linha trouxe valor da Rede: fica None (exibido como "—"),
+    # nunca vira Decimal("0") por engano.
+    assert item["valor_bruto_rede_total"] is None
+    assert item["valor_liquido_rede_total"] is None
+
+
 def test_agregar_por_autorizacao_prioriza_vencimento_shift():
     # Quando Rede e Shift discordam no vencimento, o agrupamento usa o
     # vencimento do Shift (é o lado que o usuário acompanha na tela).

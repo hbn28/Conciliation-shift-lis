@@ -354,6 +354,23 @@ def _formatar_valor_chave(valor: Decimal) -> str:
     return str(valor.quantize(Decimal("0.01")))
 
 
+def _decimal_ou_none(valor) -> Decimal | None:
+    """Converte um valor de célula pra Decimal, ou None se estiver ausente
+    (usado nos detalhes de valor bruto/líquido por lado — Shift/Rede —
+    exibidos no painel de autorizações conciliadas)."""
+    if valor is None:
+        return None
+    try:
+        if pd.isna(valor):
+            return None
+    except (TypeError, ValueError):
+        pass
+    try:
+        return Decimal(str(valor))
+    except Exception:
+        return None
+
+
 def _agregar_por_autorizacao(conciliados: list[dict]) -> dict[tuple[str, str, str], dict]:
     """Agrupa as linhas conciliadas por (autorização, vencimento Shift, valor).
 
@@ -380,7 +397,17 @@ def _agregar_por_autorizacao(conciliados: list[dict]) -> dict[tuple[str, str, st
             "formas_pagamento": set(), "quantidade_linhas": 0,
             "parcela_shift": row.get("parcela_shift"),
             "qtd_parcelas_shift": row.get("qtd_parcelas_shift"),
+            "parcela_rede": row.get("parcela_rede"),
+            "qtd_parcelas_rede": row.get("qtd_parcelas_rede"),
             "valor_bruto_total": Decimal("0"),
+            # Somatórios por lado, exibidos no detalhe de cada autorização
+            # conciliada. Ficam None enquanto nenhuma linha do grupo tiver o
+            # campo preenchido (exibido como "—"); a partir da primeira
+            # linha com valor, viram Decimal e passam a somar.
+            "valor_bruto_shift_total": None,
+            "valor_liquido_shift_total": None,
+            "valor_bruto_rede_total": None,
+            "valor_liquido_rede_total": None,
         })
         item["quantidade_linhas"] += 1
         item["datas_emissao_shift"].append(
@@ -390,6 +417,15 @@ def _agregar_por_autorizacao(conciliados: list[dict]) -> dict[tuple[str, str, st
         item["datas_venda_rede"].append(row.get("data_venda_rede"))
         item["datas_vencimento_rede"].append(row.get("rede_data_vencimento_normalizado"))
         item["valor_bruto_total"] += _valor_linha(row)
+        for campo_origem, chave_total in (
+            ("valor_bruto_shift", "valor_bruto_shift_total"),
+            ("valor_liquido_shift", "valor_liquido_shift_total"),
+            ("valor_bruto_rede", "valor_bruto_rede_total"),
+            ("valor_liquido_rede", "valor_liquido_rede_total"),
+        ):
+            valor_decimal = _decimal_ou_none(row.get(campo_origem))
+            if valor_decimal is not None:
+                item[chave_total] = (item[chave_total] or Decimal("0")) + valor_decimal
         forma = row.get("modalidade_shift") or row.get("modalidade_rede")
         if forma:
             item["formas_pagamento"].add(str(forma))
@@ -405,7 +441,13 @@ def _agregar_por_autorizacao(conciliados: list[dict]) -> dict[tuple[str, str, st
             "quantidade_linhas": item["quantidade_linhas"],
             "parcela_shift": item["parcela_shift"],
             "qtd_parcelas_shift": item["qtd_parcelas_shift"],
+            "parcela_rede": item["parcela_rede"],
+            "qtd_parcelas_rede": item["qtd_parcelas_rede"],
             "valor_bruto_total": item["valor_bruto_total"],
+            "valor_bruto_shift_total": item["valor_bruto_shift_total"],
+            "valor_liquido_shift_total": item["valor_liquido_shift_total"],
+            "valor_bruto_rede_total": item["valor_bruto_rede_total"],
+            "valor_liquido_rede_total": item["valor_liquido_rede_total"],
         }
     return resultado
 

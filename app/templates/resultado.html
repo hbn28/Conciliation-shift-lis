@@ -112,6 +112,19 @@
               </div>
             </div>
             <div class="autorizacao-acoes">
+              <details class="autorizacao-detalhes">
+                <summary class="secondary autorizacao-btn" title="Ver detalhes da parcela" aria-label="Ver detalhes da parcela">ℹ</summary>
+                <div class="autorizacao-detalhes-painel">
+                  <div><span>Venc. Shift</span><strong>{{ dados.janela_vencimento_shift or "—" }}</strong></div>
+                  <div><span>Venc. Rede</span><strong>{{ dados.janela_vencimento_rede or "—" }}</strong></div>
+                  <div><span>Valor bruto Shift</span><strong>{{ dados.valor_bruto_shift_total|money if dados.valor_bruto_shift_total is not none else "—" }}</strong></div>
+                  <div><span>Valor líquido Shift</span><strong>{{ dados.valor_liquido_shift_total|money if dados.valor_liquido_shift_total is not none else "—" }}</strong></div>
+                  <div><span>Valor bruto Rede</span><strong>{{ dados.valor_bruto_rede_total|money if dados.valor_bruto_rede_total is not none else "—" }}</strong></div>
+                  <div><span>Valor líquido Rede</span><strong>{{ dados.valor_liquido_rede_total|money if dados.valor_liquido_rede_total is not none else "—" }}</strong></div>
+                  <div><span>Parcela Shift</span><strong>{{ dados.parcela_shift or "—" }}</strong></div>
+                  <div><span>Parcela Rede</span><strong>{{ dados.parcela_rede or "—" }}</strong></div>
+                </div>
+              </details>
               <button type="button" class="secondary autorizacao-btn" title="Copiar autorização" aria-label="Copiar autorização" onclick="
                 var valor = this.closest('.autorizacao-item').dataset.autorizacao;
                 var btn = this;
