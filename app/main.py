@@ -399,6 +399,14 @@ def _formatar_parcela_com_total(atual, total) -> str:
     return atual_fmt or total_fmt or "—"
 
 
+def _chave_modalidade_bandeira(row: dict) -> str | None:
+    modalidade = row.get("modalidade_shift") or row.get("modalidade_rede")
+    bandeira = row.get("bandeira_shift") or row.get("bandeira_rede")
+    if not modalidade or not bandeira:
+        return None
+    return f"{modalidade}|{bandeira}"
+
+
 def _agregar_por_autorizacao(conciliados: list[dict]) -> dict[tuple[str, str, str], dict]:
     """Agrupa as linhas conciliadas por (autorização, vencimento Shift, valor).
 
@@ -422,7 +430,7 @@ def _agregar_por_autorizacao(conciliados: list[dict]) -> dict[tuple[str, str, st
         item = agrupado.setdefault(chave_intermediaria, {
             "datas_emissao_shift": [], "datas_vencimento_shift": [],
             "datas_venda_rede": [], "datas_vencimento_rede": [],
-            "formas_pagamento": set(), "quantidade_linhas": 0,
+            "formas_pagamento": set(), "modalidades_bandeiras": set(), "quantidade_linhas": 0,
             "parcela_shift": row.get("parcela_shift"),
             "qtd_parcelas_shift": row.get("qtd_parcelas_shift"),
             "parcela_rede": row.get("parcela_rede"),
@@ -457,6 +465,9 @@ def _agregar_por_autorizacao(conciliados: list[dict]) -> dict[tuple[str, str, st
         forma = row.get("modalidade_shift") or row.get("modalidade_rede")
         if forma:
             item["formas_pagamento"].add(str(forma))
+        modalidade_bandeira = _chave_modalidade_bandeira(row)
+        if modalidade_bandeira:
+            item["modalidades_bandeiras"].add(modalidade_bandeira)
     resultado = {}
     for (autorizacao, vencimento), item in agrupado.items():
         valor_str = _formatar_valor_chave(item["valor_bruto_total"])
@@ -466,6 +477,7 @@ def _agregar_por_autorizacao(conciliados: list[dict]) -> dict[tuple[str, str, st
             "janela_venda_rede": _formatar_janela_datas(item["datas_venda_rede"]),
             "janela_vencimento_rede": _formatar_janela_datas(item["datas_vencimento_rede"]),
             "forma_pagamento": ", ".join(sorted(item["formas_pagamento"])) or "—",
+            "modalidades_bandeiras": sorted(item["modalidades_bandeiras"]),
             "quantidade_linhas": item["quantidade_linhas"],
             "parcela_shift": item["parcela_shift"],
             "qtd_parcelas_shift": item["qtd_parcelas_shift"],
@@ -505,11 +517,14 @@ def _status_e_conciliado(status_comparacao: str) -> bool:
 
 def _montar_contexto_resultado(
     data: dict, conciliacao, arquivo_rede: str, page_param: str,
+    filtros: dict | None = None,
 ) -> dict:
     """Monta todo o contexto usado pelo template `resultado.html`: filtragem
     de divergências/conciliados por status e por arquivo de origem,
     paginação, e agregação de autorizações conciliadas. Extraído da rota
     `/resultado/{result_id}` para manter o handler HTTP enxuto."""
+    filtros = filtros or {}
+    modalidade_bandeira_filtro = (filtros.get("modalidade_bandeira") or "").strip()
     autorizacoes_marcadas = conciliacao.autorizacoes_marcadas if conciliacao else {}
     divergencias = [
         row for row in data["detalhado"]
@@ -532,6 +547,15 @@ def _montar_contexto_resultado(
         conciliados = [
             row for row in conciliados
             if row.get("rede_arquivo_origem") == arquivo_rede
+        ]
+    modalidades_bandeiras_disponiveis = sorted({
+        chave for row in data["detalhado"]
+        if (chave := _chave_modalidade_bandeira(row))
+    })
+    if modalidade_bandeira_filtro:
+        divergencias = [
+            row for row in divergencias
+            if _chave_modalidade_bandeira(row) == modalidade_bandeira_filtro
         ]
     # "Encontradas somente no Shift" (sem correspondência na Rede) têm menor
     # prioridade de leitura do que as demais divergências — saem da tabela
@@ -566,6 +590,12 @@ def _montar_contexto_resultado(
         if autorizacoes_marcadas.get(_mark_key(*chave))
     )
     total_autorizacoes_pendentes = quantidade_autorizacoes_conciliadas - total_autorizacoes_marcadas
+    if modalidade_bandeira_filtro:
+        autorizacoes_conciliadas = [
+            chave for chave in autorizacoes_conciliadas
+            if modalidade_bandeira_filtro
+            in row_shift_por_autorizacao[chave].get("modalidades_bandeiras", [])
+        ]
     return {
         "resumo": data["resumo"],
         "divergencias": divergencias_paginadas,
@@ -586,6 +616,8 @@ def _montar_contexto_resultado(
         "quantidade_autorizacoes_conciliadas": quantidade_autorizacoes_conciliadas,
         "total_autorizacoes_marcadas": total_autorizacoes_marcadas,
         "total_autorizacoes_pendentes": total_autorizacoes_pendentes,
+        "modalidades_bandeiras_disponiveis": modalidades_bandeiras_disponiveis,
+        "filtros_divergencias": {"modalidade_bandeira": modalidade_bandeira_filtro},
     }
 
 
@@ -757,14 +789,18 @@ async def processar(
 
 
 @app.get("/resultado/{result_id}", response_class=HTMLResponse)
-async def resultado(request: Request, result_id: str, arquivo_rede: str = ""):
+async def resultado(
+    request: Request, result_id: str, arquivo_rede: str = "",
+    modalidade_bandeira: str = "",
+):
     path = _result_path(result_id) / "resultado.json"
     if not path.exists():
         raise HTTPException(404, "Resultado não encontrado. Verifique o link ou refaça a conciliação.")
     data = json.loads(path.read_text(encoding="utf-8"))
     conciliacao = container.history.get(result_id)
     contexto = _montar_contexto_resultado(
-        data, conciliacao, arquivo_rede, request.query_params.get("page", "1")
+        data, conciliacao, arquivo_rede, request.query_params.get("page", "1"),
+        filtros={"modalidade_bandeira": modalidade_bandeira},
     )
     return templates.TemplateResponse(request, "resultado.html", {
         "request": request, "id": result_id, **contexto,

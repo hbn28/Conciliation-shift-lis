@@ -84,10 +84,21 @@
       {% endif %}
     </nav>
     <section class="panel">
-      <h2>Autorizações conciliadas ({{ quantidade_autorizacoes_conciliadas }})</h2>
+      <h2>Autorizações conciliadas ({{ autorizacoes_conciliadas|length }})</h2>
       <p>Copie os números abaixo (um por linha) e cole no Shift Lis para dar baixa nessas transações.
         {% if conciliacao %}Unidade: <strong>{{ conciliacao.unidade_codigo }} — {{ conciliacao.unidade_nome }}</strong>{% endif %}
       </p>
+      <form method="get" action="/resultado/{{ id }}" class="autorizacao-filtros">
+        <label>Modalidade + bandeira
+          <select name="modalidade_bandeira">
+            <option value="">Todas</option>
+            {% for item in modalidades_bandeiras_disponiveis %}
+              <option value="{{ item }}" {% if item == filtros_divergencias.modalidade_bandeira %}selected{% endif %}>{{ item.replace('|', ' · ').replace('CREDITO', 'Crédito').replace('DEBITO', 'Débito').replace('VISA', 'Visa').replace('MASTERCARD', 'Mastercard') }}</option>
+            {% endfor %}
+          </select>
+        </label>
+        <button type="submit">Aplicar às conciliadas e divergências</button>
+      </form>
       <div class="autorizacao-filtros">
         <span>Marcadas: <strong id="total-autorizacoes-marcadas">{{ total_autorizacoes_marcadas }}</strong></span>
         <span>Pendentes: <strong id="total-autorizacoes-pendentes">{{ total_autorizacoes_pendentes }}</strong></span>
@@ -328,8 +339,8 @@
     {% endif %}
     <section>
       <h2>Divergências</h2>
-      {% if arquivos_rede %}
       <form method="get" class="panel">
+        {% if arquivos_rede %}
         <label>Filtrar por arquivo da Rede
           <select name="arquivo_rede">
             <option value="">Todos</option>
@@ -338,9 +349,17 @@
             {% endfor %}
           </select>
         </label>
+        {% endif %}
+        <label>Modalidade + bandeira
+          <select name="modalidade_bandeira">
+            <option value="">Todas</option>
+            {% for item in modalidades_bandeiras_disponiveis %}
+              <option value="{{ item }}" {% if item == filtros_divergencias.modalidade_bandeira %}selected{% endif %}>{{ item.replace('|', ' · ').replace('CREDITO', 'Crédito').replace('DEBITO', 'Débito').replace('VISA', 'Visa').replace('MASTERCARD', 'Mastercard') }}</option>
+            {% endfor %}
+          </select>
+        </label>
         <button type="submit">Aplicar filtro</button>
       </form>
-      {% endif %}
       <div class="table-wrap">
         <table>
           <thead><tr>
