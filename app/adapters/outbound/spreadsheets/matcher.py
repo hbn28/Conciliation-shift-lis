@@ -58,6 +58,12 @@ PARCELA_CRITERIO_RANK = {
     "DIVERGENCIA_PARCELAS_RESTANTES": 0,
 }
 
+# Status próprio para o caso em que TODOS os demais atributos batem (valores,
+# datas, bandeira, modalidade, autorização, NSU...) e só o número da parcela
+# diverge. Não contém "DIVERGENCIA" no nome de propósito: não entra no card
+# "Divergências" nem na tabela de divergências; aparece num bloco separado.
+STATUS_PARCELA_DIFERENTE_DEMAIS_CAMPOS_CONFEREM = "PARCELA_DIFERENTE_DEMAIS_CAMPOS_CONFEREM"
+
 
 # =============================================================================
 # Fase 1 — normalização (auxiliares usados na fase de candidatos/validação).
@@ -634,6 +640,10 @@ def _action(statuses):
             "AMBIGUO_SEM_AUTORIZACAO_COMPATIVEL",
             "Revisar manualmente: múltiplos candidatos possíveis, sem correspondência automática.",
         ),
+        (
+            STATUS_PARCELA_DIFERENTE_DEMAIS_CAMPOS_CONFEREM,
+            "Conferir o número da parcela; todos os demais campos conferem",
+        ),
         ("DIVERGENCIA_PARCELA", "Verificar parcela"),
         ("DADOS_PARCELA_INSUFICIENTES", "Conferir parcela/quantidade de parcelas manualmente"),
         ("DIVERGENCIA_VALOR_BRUTO", "Verificar valor bruto"),
@@ -1050,10 +1060,26 @@ def compare_rede_shift(df_rede: pd.DataFrame, df_shift: pd.DataFrame) -> Compari
             statuses = ["CONCILIADO_COM_DIVERGENCIA_TOLERADA"]
         elif tolerated_money_difference:
             statuses.append("DIVERGENCIA_TOLERADA_ATE_2_CENTAVOS")
+
+        # Só o número da parcela diverge e todo o resto bate (a diferença de
+        # até R$ 0,02 já é aceita como "batendo"): sai do bloco de
+        # divergências e ganha status próprio.
+        so_parcela_diverge = (
+            not grouped_shift
+            and "DIVERGENCIA_PARCELA" in statuses
+            and set(statuses) <= {"DIVERGENCIA_PARCELA", "DIVERGENCIA_TOLERADA_ATE_2_CENTAVOS"}
+        )
+        if so_parcela_diverge:
+            statuses = [
+                STATUS_PARCELA_DIFERENTE_DEMAIS_CAMPOS_CONFEREM if status == "DIVERGENCIA_PARCELA" else status
+                for status in statuses
+            ]
         if not statuses:
             statuses = ["CONCILIADO"]
 
         motivo = _gerar_motivo(match_type, criterio_parcela, divergent)
+        if so_parcela_diverge:
+            motivo += " Todos os demais campos conferem; apenas o número da parcela é diferente."
         details.append(_detail(
             shift, rede, statuses, divergent, match_type,
             criterio_parcela=criterio_parcela,
@@ -1169,20 +1195,36 @@ def compare_rede_shift(df_rede: pd.DataFrame, df_shift: pd.DataFrame) -> Compari
         "total_parcela_compativel_por_restantes": int(
             status_col.str.contains("CONCILIADO_COM_PARCELA_COMPATIVEL_POR_RESTANTES").sum()
         ),
+        "total_parcela_diferente_demais_campos_conferem": int(
+            status_col.str.contains(STATUS_PARCELA_DIFERENTE_DEMAIS_CAMPOS_CONFEREM).sum()
+        ),
         "total_so_rede": int(status_col.str.contains("NAO_ENCONTRADO_NO_SHIFT").sum()),
         "total_so_shift": int(status_col.str.contains("NAO_ENCONTRADO_NA_REDE").sum()),
-        "total_com_divergencia": int(status_col.str.contains(
-            # "DIVERGENCIA(?!_TOLERADA)" exclui CONCILIADO_COM_DIVERGENCIA_TOLERADA
-            # e DIVERGENCIA_TOLERADA_ATE_2_CENTAVOS: diferenças de até R$ 0,02
-            # contam como conciliadas (ver total_divergencia_tolerada), não
-            # como divergência neste card. Bug real: antes, esses status
-            # entravam aqui só por conterem a palavra "DIVERGENCIA".
-            "DIVERGENCIA(?!_TOLERADA)|REVISAO_MANUAL|DADOS_PARCELA_INSUFICIENTES"
-            "|REVISAR_AUTORIZACAO_DIVERGENTE|AMBIGUO_SEM_AUTORIZACAO_COMPATIVEL"
-            "|AGRUPAMENTO_SHIFT_AMBIGUO|AGRUPAMENTO_OS_AMBIGUO"
-            "|AGRUPAMENTO_OS_VALOR_DIVERGENTE|DUPLICIDADE_EXATA_SUSPEITA"
-            "|AUTORIZACAO_REPETIDA_MESMO_VENCIMENTO_PARCELA_DIFERENTE",
-            regex=True,
+        "total_com_divergencia": int((
+            status_col.str.contains(
+                # "DIVERGENCIA(?!_TOLERADA)" exclui CONCILIADO_COM_DIVERGENCIA_TOLERADA
+                # e DIVERGENCIA_TOLERADA_ATE_2_CENTAVOS: diferenças de até R$ 0,02
+                # contam como conciliadas (ver total_divergencia_tolerada), não
+                # como divergência neste card. Bug real: antes, esses status
+                # entravam aqui só por conterem a palavra "DIVERGENCIA".
+                "DIVERGENCIA(?!_TOLERADA)|REVISAO_MANUAL|DADOS_PARCELA_INSUFICIENTES"
+                "|REVISAR_AUTORIZACAO_DIVERGENTE|AMBIGUO_SEM_AUTORIZACAO_COMPATIVEL"
+                "|AGRUPAMENTO_SHIFT_AMBIGUO|AGRUPAMENTO_OS_AMBIGUO"
+                "|AGRUPAMENTO_OS_VALOR_DIVERGENTE|DUPLICIDADE_EXATA_SUSPEITA"
+                "|AUTORIZACAO_REPETIDA_MESMO_VENCIMENTO_PARCELA_DIFERENTE",
+                regex=True,
+            )
+            # Regra pedida: só conta como divergência quando a parcela existe
+            # nos DOIS lados ao mesmo tempo. Alguns status "ambíguos"/de
+            # duplicidade (ex.: AMBIGUO_SEM_AUTORIZACAO_COMPATIVEL,
+            # AGRUPAMENTO_OS_AMBIGUO sem candidato na Rede) vêm sempre
+            # combinados com NAO_ENCONTRADO_NA_REDE/NO_SHIFT quando a
+            # transação só existe de um lado — nesse caso não é divergência,
+            # é "só no Shift"/"só na Rede" (já contado em total_so_shift /
+            # total_so_rede).
+            & ~status_col.str.contains(
+                "NAO_ENCONTRADO_NA_REDE|NAO_ENCONTRADO_NO_SHIFT", regex=True
+            )
         ).sum()),
         "total_agrupamento_shift_ambiguo": int(
             status_col.str.contains("AGRUPAMENTO_SHIFT_AMBIGUO|AGRUPAMENTO_OS_AMBIGUO").sum()

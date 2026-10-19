@@ -86,6 +86,9 @@ def test_leading_zero_is_conciliated():
 def test_value_divergence():
     result = _compare([_row("123456", "123", "10,00")], [_row("123456", "123", "11,00")])
     assert "DIVERGENCIA_VALOR_BRUTO" in result.detalhado.loc[0, "status_comparacao"]
+    # Existe dos dois lados (Rede e Shift), então continua contando no card
+    # "Divergências".
+    assert result.resumo["total_com_divergencia"] == 1
 
 
 def test_installment_divergence_is_suggested():
@@ -117,7 +120,34 @@ def test_parcela_com_saldo_restante_diferente_e_divergencia_real():
     result = _compare([rede_row], [shift_row])
     detail = result.detalhado.loc[0]
     assert detail["criterio_parcela"] == "DIVERGENCIA_PARCELAS_RESTANTES"
-    assert "DIVERGENCIA_PARCELA" in detail["status_comparacao"]
+    # Todos os demais campos batem: não é "divergência", tem status próprio.
+    assert detail["status_comparacao"] == "PARCELA_DIFERENTE_DEMAIS_CAMPOS_CONFEREM"
+    assert detail["campos_divergentes"] == "parcela"
+    assert result.resumo["total_com_divergencia"] == 0
+    assert result.resumo["total_parcela_diferente_demais_campos_conferem"] == 1
+
+
+def test_parcela_diferente_com_outro_campo_divergente_continua_divergencia():
+    # Parcela diferente E valor bruto diferente: segue como divergência.
+    rede_row = _row("123456", "123", "11,00", "2", "2")
+    shift_row = _row("123456", "123", "10,00", "2", "3")
+    result = _compare([rede_row], [shift_row])
+    status = result.detalhado.loc[0, "status_comparacao"]
+    assert "DIVERGENCIA_PARCELA" in status
+    assert "DIVERGENCIA_VALOR_BRUTO" in status
+    assert "PARCELA_DIFERENTE_DEMAIS_CAMPOS_CONFEREM" not in status
+    assert result.resumo["total_com_divergencia"] == 1
+    assert result.resumo["total_parcela_diferente_demais_campos_conferem"] == 0
+
+
+def test_parcela_diferente_com_diferenca_tolerada_de_2_centavos_fica_no_bloco_proprio():
+    rede_row = _row("123456", "123", "10,01", "2", "2")
+    shift_row = _row("123456", "123", "10,00", "2", "3")
+    result = _compare([rede_row], [shift_row])
+    status = result.detalhado.loc[0, "status_comparacao"]
+    assert "PARCELA_DIFERENTE_DEMAIS_CAMPOS_CONFEREM" in status
+    assert "DIVERGENCIA_PARCELA" not in status
+    assert result.resumo["total_com_divergencia"] == 0
 
 
 def test_sem_autorizacao_compativel_nao_usa_fallback_por_data_e_valor():
@@ -238,6 +268,12 @@ def test_agrupamento_ambiguo_sem_autorizacao_na_rede_vira_somente_no_shift():
     shift_rows = result.detalhado[result.detalhado["linha_shift"].notna()]
     assert shift_rows["status_comparacao"].str.contains("AGRUPAMENTO_OS_AMBIGUO").all()
     assert shift_rows["status_comparacao"].str.contains("NAO_ENCONTRADO_NA_REDE").all()
+    # Regra pedida: só conta como divergência quando a parcela existe nos
+    # dois lados ao mesmo tempo. Aqui a autorização do Shift nem existe na
+    # Rede, então não deve contar no card "Divergências" (só em "Só no
+    # Shift", via total_so_shift).
+    assert result.resumo["total_com_divergencia"] == 0
+    assert result.resumo["total_so_shift"] == len(shift_rows)
 
 
 def test_agrupamento_mesma_autorizacao_soma_diverge_da_rede():

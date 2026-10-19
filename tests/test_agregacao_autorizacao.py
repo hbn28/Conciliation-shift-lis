@@ -297,6 +297,30 @@ def test_montar_contexto_resultado_separa_somente_no_shift_da_tabela_principal()
     assert {row["shift_autorizacao_normalizado"] for row in contexto["somente_no_shift"]} == {"2", "3"}
 
 
+def test_montar_contexto_resultado_separa_parcela_diferente_da_tabela_principal():
+    # Só o número da parcela difere (demais campos batem): não é inconsistência,
+    # sai da tabela de divergências e vai para o bloco `parcela_diferente`.
+    detalhado = [
+        {"status_comparacao": "DIVERGENCIA_VALOR_BRUTO", "shift_autorizacao_normalizado": "1"},
+        {"status_comparacao": "PARCELA_DIFERENTE_DEMAIS_CAMPOS_CONFEREM", "shift_autorizacao_normalizado": "2"},
+        {
+            "status_comparacao": "PARCELA_DIFERENTE_DEMAIS_CAMPOS_CONFEREM + DIVERGENCIA_TOLERADA_ATE_2_CENTAVOS",
+            "shift_autorizacao_normalizado": "3",
+        },
+        {"status_comparacao": "DIVERGENCIA_PARCELA + DIVERGENCIA_VALOR_BRUTO", "shift_autorizacao_normalizado": "4"},
+        {"status_comparacao": "CONCILIADO", "shift_autorizacao_normalizado": "5"},
+    ]
+    contexto = _montar_contexto_resultado(
+        {"resumo": {}, "detalhado": detalhado, "qualidade_shift": []},
+        conciliacao=None, arquivo_rede="", page_param="1",
+    )
+    assert contexto["total_divergencias"] == 2
+    assert {row["shift_autorizacao_normalizado"] for row in contexto["divergencias"]} == {"1", "4"}
+    assert contexto["total_parcela_diferente"] == 2
+    assert {row["shift_autorizacao_normalizado"] for row in contexto["parcela_diferente"]} == {"2", "3"}
+    assert contexto["prioridades"]["parcela_diferente_qtd"] == 2
+
+
 def test_construir_linhas_verificacao_nao_conciliada():
     rede = _linhas_rede_654321()
     linhas = _construir_linhas_verificacao(rede, parcelas_conciliadas=set())

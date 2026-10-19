@@ -569,6 +569,18 @@ def _montar_contexto_resultado(
         row for row in divergencias
         if "NAO_ENCONTRADO_NA_REDE" not in (row.get("status_comparacao") or "")
     ]
+    # "Parcela diferente (demais campos conferem)": todos os atributos batem
+    # e só o número da parcela diverge — não é inconsistência, então sai da
+    # tabela de divergências e vai para um bloco próprio, também fechado
+    # por padrão.
+    parcela_diferente = [
+        row for row in divergencias
+        if "PARCELA_DIFERENTE_DEMAIS_CAMPOS_CONFEREM" in (row.get("status_comparacao") or "")
+    ]
+    divergencias = [
+        row for row in divergencias
+        if "PARCELA_DIFERENTE_DEMAIS_CAMPOS_CONFEREM" not in (row.get("status_comparacao") or "")
+    ]
     divergencias = sort_divergences(divergencias)
     somente_no_shift = sort_divergences(somente_no_shift)
     try:
@@ -602,6 +614,8 @@ def _montar_contexto_resultado(
         "total_divergencias": total_divergencias,
         "somente_no_shift": somente_no_shift,
         "total_somente_no_shift": len(somente_no_shift),
+        "parcela_diferente": parcela_diferente,
+        "total_parcela_diferente": len(parcela_diferente),
         "pagina_atual": page,
         "total_paginas": total_paginas,
         "qualidade": data["qualidade_shift"][:200],
